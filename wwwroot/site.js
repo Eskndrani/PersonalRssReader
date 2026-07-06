@@ -26,6 +26,19 @@ function stripTags(html) {
   return tmp.textContent || tmp.innerText || "";
 }
 
+let allArticles = [];
+let currentPage = 1;
+const PAGE_SIZE = 10;
+
+function getColorForFeed(feedTitle) {
+  let hash = 0;
+  for (let i = 0; i < feedTitle.length; i++) {
+    hash = feedTitle.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const hue = ((hash % 360) + 360) % 360;
+  return `hsl(${hue}, 55%, 45%)`;
+}
+
 async function loadFeeds() {
   const list = document.getElementById("feed-list");
 
@@ -97,8 +110,8 @@ async function loadNews() {
   try {
     const res = await fetch("/api/news");
     if (!res.ok) throw new Error("Failed to fetch news");
-    const articles = await res.json();
-    renderArticles(articles);
+    allArticles = await res.json();
+    renderPage(1);
   } catch {
     container.textContent = "";
     emptyState.textContent = "Your feed is quiet. Add some subscriptions on the left!";
@@ -107,29 +120,41 @@ async function loadNews() {
   }
 }
 
-function renderArticles(articles) {
+function renderPage(page) {
   const container = document.getElementById("articles-container");
   const emptyState = document.getElementById("empty-state");
+  const pagination = document.getElementById("pagination-controls");
+  const prevBtn = document.getElementById("prev-page-btn");
+  const nextBtn = document.getElementById("next-page-btn");
+  const indicator = document.getElementById("page-indicator");
 
   container.textContent = "";
 
-  if (articles.length === 0) {
+  if (allArticles.length === 0) {
     emptyState.textContent = "Your feed is quiet. Add some subscriptions on the left!";
     emptyState.classList.remove("hidden");
+    pagination.style.display = "none";
     return;
   }
 
   emptyState.classList.add("hidden");
 
-  articles.forEach((a) => {
+  const totalPages = Math.ceil(allArticles.length / PAGE_SIZE);
+  currentPage = Math.max(1, Math.min(page, totalPages));
+
+  const start = (currentPage - 1) * PAGE_SIZE;
+  const pageArticles = allArticles.slice(start, start + PAGE_SIZE);
+
+  pageArticles.forEach((a) => {
     const card = document.createElement("article");
     card.className = "article-card";
 
     const source = document.createElement("div");
     source.className = "article-feed-source";
     const tag = document.createElement("span");
-    tag.className = "feed-source-tag";
+    tag.className = "feed-tag";
     tag.textContent = a.feedTitle;
+    tag.style.backgroundColor = getColorForFeed(a.feedTitle);
     source.appendChild(tag);
 
     const title = document.createElement("h3");
@@ -156,6 +181,13 @@ function renderArticles(articles) {
 
     container.appendChild(card);
   });
+
+  indicator.textContent = `Page ${currentPage} of ${totalPages}`;
+  prevBtn.disabled = currentPage <= 1;
+  nextBtn.disabled = currentPage >= totalPages;
+  pagination.style.display = "flex";
+
+  document.getElementById("articles-container").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function setupAddFeedForm() {
@@ -202,6 +234,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.getElementById("refresh-btn").addEventListener("click", () => {
     loadNews();
+  });
+
+  document.getElementById("prev-page-btn").addEventListener("click", () => {
+    renderPage(currentPage - 1);
+  });
+
+  document.getElementById("next-page-btn").addEventListener("click", () => {
+    renderPage(currentPage + 1);
   });
 });
 

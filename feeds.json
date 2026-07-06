@@ -13,5 +13,10 @@
     "Id": "dad3e4d4-88c9-4d49-9735-5b2344813cde",
     "Url": "https://devblogs.microsoft.com/dotnet/feed/",
     "Title": ".NET Blog"
+  },
+  {
+    "Id": "d4f10ffa-fc49-4596-9472-0ef9ccf93a16",
+    "Url": "https://feeds.hanselman.com/ScottHanselman",
+    "Title": "Scott Hanselman\u0027s Blog"
   }
 ]
