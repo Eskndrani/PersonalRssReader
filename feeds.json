@@ -3,5 +3,15 @@
     "Id": "f92fd611-715e-406b-a22c-425df62c39e9",
     "Url": "http://localhost:5152/api/hacker",
     "Title": "Dark Web News"
+  },
+  {
+    "Id": "4ccc767a-a91c-438e-9d5c-69934b32f7b5",
+    "Url": "https://andrewlock.net/rss.xml",
+    "Title": "Andrew Lock | .NET Escapades"
+  },
+  {
+    "Id": "dad3e4d4-88c9-4d49-9735-5b2344813cde",
+    "Url": "https://devblogs.microsoft.com/dotnet/feed/",
+    "Title": ".NET Blog"
   }
 ]

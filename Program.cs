@@ -1,7 +1,6 @@
 using System.Text.Json;
-using System.ServiceModel.Syndication;
+using CodeHollow.FeedReader;
 using Microsoft.Extensions.Caching.Memory;
-using System.Xml;
 using Ganss.Xss;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -36,10 +35,8 @@ app.MapPost("/api/feeds", async (FeedDto dto, IMemoryCache cache) =>
     var sanitizer = new HtmlSanitizer();
     try
     {
-        await using var stream = await httpClient.GetStreamAsync(dto.Url);
-        using var reader = XmlReader.Create(stream);
-        var syndicationFeed = SyndicationFeed.Load(reader);
-        title = sanitizer.Sanitize(syndicationFeed.Title?.Text ?? dto.Url);
+        var feedData = await FeedReader.ReadAsync(dto.Url);
+        title = sanitizer.Sanitize(feedData.Title ?? dto.Url);
     }
     catch
     {
@@ -87,18 +84,19 @@ app.MapGet("/api/news", async (IMemoryCache cache) =>
     {
         try
         {
-            await using var stream = await httpClient.GetStreamAsync(feed.Url);
-            using var reader = XmlReader.Create(stream);
-            var syndicationFeed = SyndicationFeed.Load(reader);
+            var feedData = await FeedReader.ReadAsync(feed.Url);
 
             anySucceeded = true;
 
-            return syndicationFeed.Items.Select(item => new Article(
+            return feedData.Items.Select(item => new Article(
                 FeedTitle: sanitizer.Sanitize(feed.Title),
-                Title: sanitizer.Sanitize(item.Title?.Text ?? ""),
-                Link: (item.Links.FirstOrDefault()?.Uri is { Scheme: "http" or "https" } safeUri) ? safeUri.ToString() : "#",
-                PublishDate: item.PublishDate.UtcDateTime,
-                Summary: sanitizer.Sanitize(item.Summary?.Text ?? "")
+                Title: sanitizer.Sanitize(item.Title ?? ""),
+                Link: (Uri.TryCreate(item.Link, UriKind.Absolute, out var uri)
+                       && (uri.Scheme == "http" || uri.Scheme == "https"))
+                    ? uri.ToString()
+                    : "#",
+                PublishDate: item.PublishingDate ?? DateTime.UtcNow,
+                Summary: sanitizer.Sanitize(item.Description ?? "")
             ));
         }
         catch
