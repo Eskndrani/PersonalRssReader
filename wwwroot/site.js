@@ -39,6 +39,19 @@ function getColorForFeed(feedTitle) {
   return `hsl(${hue}, 55%, 45%)`;
 }
 
+function openModal(globalIndex) {
+  const article = allArticles[globalIndex];
+  if (!article) return;
+
+  document.getElementById("modal-title").textContent = article.title;
+  document.getElementById("modal-body").innerHTML = article.summary;
+  document.getElementById("read-modal").style.display = "flex";
+}
+
+function closeModal() {
+  document.getElementById("read-modal").style.display = "none";
+}
+
 async function loadFeeds() {
   const list = document.getElementById("feed-list");
 
@@ -145,7 +158,7 @@ function renderPage(page) {
   const start = (currentPage - 1) * PAGE_SIZE;
   const pageArticles = allArticles.slice(start, start + PAGE_SIZE);
 
-  pageArticles.forEach((a) => {
+  pageArticles.forEach((a, i) => {
     const card = document.createElement("article");
     card.className = "article-card";
 
@@ -170,14 +183,22 @@ function renderPage(page) {
     meta.className = "article-meta";
     meta.textContent = formatDate(a.publishDate);
 
-    const summary = document.createElement("p");
+    const summary = document.createElement("div");
     summary.className = "article-summary";
-    summary.textContent = stripTags(a.summary);
+    summary.innerHTML = a.summary;
+
+    const readMore = document.createElement("button");
+    readMore.className = "btn btn-secondary";
+    readMore.textContent = "Read More";
+    readMore.style.marginTop = "0.5rem";
+    const articleIndex = start + i;
+    readMore.addEventListener("click", () => openModal(articleIndex));
 
     card.appendChild(source);
     card.appendChild(title);
     card.appendChild(meta);
     card.appendChild(summary);
+    card.appendChild(readMore);
 
     container.appendChild(card);
   });
@@ -243,6 +264,10 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("next-page-btn").addEventListener("click", () => {
     renderPage(currentPage + 1);
   });
+
+  document.getElementById("read-modal").querySelector(".modal-close").addEventListener("click", closeModal);
+
+  document.getElementById("read-modal").querySelector(".modal-backdrop").addEventListener("click", closeModal);
 });
 
 function escapeHtml(str) {
