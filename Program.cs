@@ -6,6 +6,9 @@ using Ganss.Xss;
 var builder = WebApplication.CreateBuilder(args);
 var app = builder.Build();
 
+app.UseDefaultFiles(); // Look for an index.html file
+app.UseStaticFiles();  // Serve CSS, JS, and HTML files
+
 var httpClient = new HttpClient();
 
 app.MapGet("/api/feeds", async () =>
