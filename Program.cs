@@ -33,12 +33,13 @@ app.MapPost("/api/feeds", async (FeedDto dto, IMemoryCache cache) =>
         return Results.BadRequest("A feed with this URL already exists.");
 
     string title;
+    var sanitizer = new HtmlSanitizer();
     try
     {
         await using var stream = await httpClient.GetStreamAsync(dto.Url);
         using var reader = XmlReader.Create(stream);
         var syndicationFeed = SyndicationFeed.Load(reader);
-        title = syndicationFeed.Title?.Text ?? dto.Url;
+        title = sanitizer.Sanitize(syndicationFeed.Title?.Text ?? dto.Url);
     }
     catch
     {
@@ -95,7 +96,7 @@ app.MapGet("/api/news", async (IMemoryCache cache) =>
             return syndicationFeed.Items.Select(item => new Article(
                 FeedTitle: sanitizer.Sanitize(feed.Title),
                 Title: sanitizer.Sanitize(item.Title?.Text ?? ""),
-                Link: sanitizer.Sanitize(item.Links.FirstOrDefault()?.Uri?.ToString() ?? ""),
+                Link: (item.Links.FirstOrDefault()?.Uri is { Scheme: "http" or "https" } safeUri) ? safeUri.ToString() : "#",
                 PublishDate: item.PublishDate.UtcDateTime,
                 Summary: sanitizer.Sanitize(item.Summary?.Text ?? "")
             ));
@@ -117,6 +118,25 @@ app.MapGet("/api/news", async (IMemoryCache cache) =>
     }
 
     return Results.Ok(articles);
+});
+
+// TEMPORARY ENDPOINT FOR SECURITY TESTING
+app.MapGet("/api/hacker", () =>
+{
+    var xml = @"<?xml version=""1.0"" encoding=""UTF-8"" ?>
+    <rss version=""2.0"">
+    <channel>
+      <title><![CDATA[<script>alert('Hacked Title!')</script>Dark Web News]]></title>
+      <link>http://example.com/</link>
+      <item>
+        <title>You won a million dollars!</title>
+        <link>javascript:alert('Stole your session tokens!')</link>
+        <pubDate>Mon, 06 Jul 2026 12:00:00 GMT</pubDate>
+        <description><![CDATA[<p>Click the link above! <script>alert('XSS Attack Execution!');</script> <b>This bold text is safe.</b></p>]]></description>
+      </item>
+    </channel>
+    </rss>";
+    return Results.Text(xml, "application/xml");
 });
 
 app.Run();
