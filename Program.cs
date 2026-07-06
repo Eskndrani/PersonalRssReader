@@ -54,6 +54,40 @@ app.MapDelete("/api/feeds/{id}", async (string id) =>
     return Results.NoContent();
 });
 
+app.MapGet("/api/news", async () =>
+{
+    var feeds = await ReadFeedsAsync();
+
+    var tasks = feeds.Select(async feed =>
+    {
+        try
+        {
+            await using var stream = await httpClient.GetStreamAsync(feed.Url);
+            using var reader = XmlReader.Create(stream);
+            var syndicationFeed = SyndicationFeed.Load(reader);
+
+            return syndicationFeed.Items.Select(item => new Article(
+                FeedTitle: feed.Title,
+                Title: item.Title?.Text ?? "",
+                Link: item.Links.FirstOrDefault()?.Uri?.ToString() ?? "",
+                PublishDate: item.PublishDate.UtcDateTime,
+                Summary: item.Summary?.Text ?? ""
+            ));
+        }
+        catch
+        {
+            return Enumerable.Empty<Article>();
+        }
+    });
+
+    var results = await Task.WhenAll(tasks);
+    var articles = results.SelectMany(a => a)
+        .OrderByDescending(a => a.PublishDate)
+        .ToList();
+
+    return Results.Ok(articles);
+});
+
 app.Run();
 
 async Task<List<Feed>> ReadFeedsAsync()
