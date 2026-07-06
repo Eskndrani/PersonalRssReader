@@ -1,9 +1,13 @@
 using System.Text.Json;
 using System.ServiceModel.Syndication;
+using Microsoft.Extensions.Caching.Memory;
 using System.Xml;
 using Ganss.Xss;
 
 var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddMemoryCache(); // Enable Caching
+
 var app = builder.Build();
 
 app.UseDefaultFiles(); // Look for an index.html file
@@ -21,7 +25,7 @@ app.MapGet("/api/feeds", async () =>
     return Results.Ok(feeds);
 });
 
-app.MapPost("/api/feeds", async (FeedDto dto) =>
+app.MapPost("/api/feeds", async (FeedDto dto, IMemoryCache cache) =>
 {
     var feeds = await ReadFeedsAsync();
 
@@ -45,10 +49,12 @@ app.MapPost("/api/feeds", async (FeedDto dto) =>
     feeds.Add(feed);
     await WriteFeedsAsync(feeds);
 
+    cache.Remove("cached_news");
+
     return Results.Created($"/api/feeds/{feed.Id}", feed);
 });
 
-app.MapDelete("/api/feeds/{id}", async (string id) =>
+app.MapDelete("/api/feeds/{id}", async (string id, IMemoryCache cache) =>
 {
     var feeds = await ReadFeedsAsync();
     var feed = feeds.FirstOrDefault(f => f.Id == id);
@@ -59,13 +65,22 @@ app.MapDelete("/api/feeds/{id}", async (string id) =>
     feeds.Remove(feed);
     await WriteFeedsAsync(feeds);
 
+    cache.Remove("cached_news");
+
     return Results.NoContent();
 });
 
-app.MapGet("/api/news", async () =>
+app.MapGet("/api/news", async (IMemoryCache cache) =>
 {
+    if (cache.TryGetValue("cached_news", out List<Article>? cachedArticles))
+    {
+        return Results.Ok(cachedArticles);
+    }
+
     var feeds = await ReadFeedsAsync();
     var sanitizer = new HtmlSanitizer();
+
+    var anySucceeded = false;
 
     var tasks = feeds.Select(async feed =>
     {
@@ -74,6 +89,8 @@ app.MapGet("/api/news", async () =>
             await using var stream = await httpClient.GetStreamAsync(feed.Url);
             using var reader = XmlReader.Create(stream);
             var syndicationFeed = SyndicationFeed.Load(reader);
+
+            anySucceeded = true;
 
             return syndicationFeed.Items.Select(item => new Article(
                 FeedTitle: sanitizer.Sanitize(feed.Title),
@@ -93,6 +110,11 @@ app.MapGet("/api/news", async () =>
     var articles = results.SelectMany(a => a)
         .OrderByDescending(a => a.PublishDate)
         .ToList();
+
+    if (anySucceeded)
+    {
+        cache.Set("cached_news", articles, TimeSpan.FromMinutes(5));
+    }
 
     return Results.Ok(articles);
 });
