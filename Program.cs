@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.ServiceModel.Syndication;
 using System.Xml;
+using Ganss.Xss;
 
 var builder = WebApplication.CreateBuilder(args);
 var app = builder.Build();
@@ -57,6 +58,7 @@ app.MapDelete("/api/feeds/{id}", async (string id) =>
 app.MapGet("/api/news", async () =>
 {
     var feeds = await ReadFeedsAsync();
+    var sanitizer = new HtmlSanitizer();
 
     var tasks = feeds.Select(async feed =>
     {
@@ -67,11 +69,11 @@ app.MapGet("/api/news", async () =>
             var syndicationFeed = SyndicationFeed.Load(reader);
 
             return syndicationFeed.Items.Select(item => new Article(
-                FeedTitle: feed.Title,
-                Title: item.Title?.Text ?? "",
-                Link: item.Links.FirstOrDefault()?.Uri?.ToString() ?? "",
+                FeedTitle: sanitizer.Sanitize(feed.Title),
+                Title: sanitizer.Sanitize(item.Title?.Text ?? ""),
+                Link: sanitizer.Sanitize(item.Links.FirstOrDefault()?.Uri?.ToString() ?? ""),
                 PublishDate: item.PublishDate.UtcDateTime,
-                Summary: item.Summary?.Text ?? ""
+                Summary: sanitizer.Sanitize(item.Summary?.Text ?? "")
             ));
         }
         catch
