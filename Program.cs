@@ -11,6 +11,10 @@ app.UseStaticFiles();  // Serve CSS, JS, and HTML files
 
 var httpClient = new HttpClient();
 
+// this user agent is used to avoid 403 errors from some websites that block requests from unknown clients
+httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+
+
 app.MapGet("/api/feeds", async () =>
 {
     var feeds = await ReadFeedsAsync();
