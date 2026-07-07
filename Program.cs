@@ -2,6 +2,7 @@ using System.Text.Json;
 using CodeHollow.FeedReader;
 using Microsoft.Extensions.Caching.Memory;
 using Ganss.Xss;
+using System.Net;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -90,13 +91,13 @@ app.MapGet("/api/news", async (IMemoryCache cache) =>
 
             return feedData.Items.Select(item => new Article(
                 FeedTitle: sanitizer.Sanitize(feed.Title),
-                Title: sanitizer.Sanitize(item.Title ?? ""),
+                Title: sanitizer.Sanitize(WebUtility.HtmlDecode(item.Title ?? "")),
                 Link: (Uri.TryCreate(item.Link, UriKind.Absolute, out var uri)
                        && (uri.Scheme == "http" || uri.Scheme == "https"))
                     ? uri.ToString()
                     : "#",
                 PublishDate: item.PublishingDate ?? DateTime.UtcNow,
-                Summary: sanitizer.Sanitize(item.Description ?? "")
+                Summary: sanitizer.Sanitize(WebUtility.HtmlDecode(item.Description ?? ""))
             ));
         }
         catch
@@ -116,6 +117,53 @@ app.MapGet("/api/news", async (IMemoryCache cache) =>
     }
 
     return Results.Ok(articles);
+});
+
+app.MapPost("/api/refresh-feed", async (FeedDto dto, IMemoryCache cache) =>
+{
+    var feeds = await ReadFeedsAsync();
+    var feed = feeds.FirstOrDefault(f => f.Url == dto.Url);
+
+    if (feed is null)
+        return Results.BadRequest("This feed is not in your subscriptions.");
+
+    var sanitizer = new HtmlSanitizer();
+    CodeHollow.FeedReader.Feed feedData;
+    try
+    {
+        feedData = await FeedReader.ReadAsync(dto.Url);
+    }
+    catch
+    {
+        return Results.BadRequest("Failed to fetch the feed.");
+    }
+
+    var sanitizedTitle = sanitizer.Sanitize(feedData.Title ?? feed.Title);
+
+    var freshArticles = feedData.Items.Select(item => new Article(
+        FeedTitle: sanitizedTitle,
+        Title: sanitizer.Sanitize(WebUtility.HtmlDecode(item.Title ?? "")),
+        Link: (Uri.TryCreate(item.Link, UriKind.Absolute, out var uri)
+               && (uri.Scheme == "http" || uri.Scheme == "https"))
+            ? uri.ToString()
+            : "#",
+        PublishDate: item.PublishingDate ?? DateTime.UtcNow,
+        Summary: sanitizer.Sanitize(WebUtility.HtmlDecode(item.Description ?? ""))
+    )).ToList();
+
+    var cachedArticles = cache.TryGetValue("cached_news", out List<Article>? existing)
+        ? existing ?? []
+        : [];
+
+    var updatedArticles = cachedArticles
+        .Where(a => a.FeedTitle != feed.Title && a.FeedTitle != sanitizedTitle)
+        .Concat(freshArticles)
+        .OrderByDescending(a => a.PublishDate)
+        .ToList();
+
+    cache.Set("cached_news", updatedArticles, TimeSpan.FromMinutes(5));
+
+    return Results.Ok();
 });
 
 // TEMPORARY ENDPOINT FOR SECURITY TESTING

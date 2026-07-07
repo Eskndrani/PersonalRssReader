@@ -1,22 +1,97 @@
 [
   {
-    "Id": "f92fd611-715e-406b-a22c-425df62c39e9",
-    "Url": "http://localhost:5152/api/hacker",
-    "Title": "Dark Web News"
-  },
-  {
     "Id": "4ccc767a-a91c-438e-9d5c-69934b32f7b5",
     "Url": "https://andrewlock.net/rss.xml",
     "Title": "Andrew Lock | .NET Escapades"
   },
   {
-    "Id": "dad3e4d4-88c9-4d49-9735-5b2344813cde",
+    "Id": "d4f10ffa-fc49-4596-9472-0ef9ccf93a16",
+    "Url": "https://feeds.hanselman.com/ScottHanselman",
+    "Title": "Scott Hanselman\u0027s Blog"
+  },
+  {
+    "Id": "45c13c07-2688-4b6f-b608-7fe4f93c8ce4",
+    "Url": "https://github.blog/feed/",
+    "Title": "The GitHub Blog"
+  },
+  {
+    "Id": "aa2a2789-297b-4cc3-ad6e-54f6d638d376",
+    "Url": "https://stackoverflow.blog/feed/",
+    "Title": "Stack Overflow Blog"
+  },
+  {
+    "Id": "0cba27fb-71fb-4d71-b909-ac0e87c6730c",
+    "Url": "https://herbsutter.com/feed/",
+    "Title": "Sutter\u2019s Mill"
+  },
+  {
+    "Id": "4de3f879-6010-4773-94b4-c819a0241b97",
+    "Url": "https://api.quantamagazine.org/feed/",
+    "Title": "Quanta Magazine"
+  },
+  {
+    "Id": "911defd1-4ef5-4592-a8db-8979a0b80f5e",
+    "Url": "https://hackaday.com/blog/feed/",
+    "Title": "Blog \u2013 Hackaday"
+  },
+  {
+    "Id": "a5be1d22-ad70-4fe7-8004-a16f8f557880",
+    "Url": "https://blog.arduino.cc/feed/",
+    "Title": "Arduino Blog"
+  },
+  {
+    "Id": "630fb33c-4937-469b-9747-087841e3baa5",
+    "Url": "https://www.raspberrypi.com/news/feed/",
+    "Title": "News - Raspberry Pi"
+  },
+  {
+    "Id": "beb263a1-b1a2-4092-9331-8a9ea01d5b07",
+    "Url": "https://feeds.arstechnica.com/arstechnica/index",
+    "Title": "Ars Technica - All content"
+  },
+  {
+    "Id": "35a21406-ecc2-43c7-b103-58f305c0eac5",
+    "Url": "https://www.theverge.com/rss/index.xml",
+    "Title": "The Verge"
+  },
+  {
+    "Id": "fd617782-96f7-4af7-a344-ce32d83ffe05",
+    "Url": "https://techcrunch.com/feed/",
+    "Title": "TechCrunch"
+  },
+  {
+    "Id": "b1e9203c-1185-445c-a22d-96dabd2be196",
+    "Url": "https://www.smashingmagazine.com/feed/",
+    "Title": "Articles on Smashing Magazine \u2014 For Web Designers And Developers"
+  },
+  {
+    "Id": "5a1397ac-7a6e-4267-a9a8-48d06817be6f",
+    "Url": "https://plato.stanford.edu/rss/sep.xml",
+    "Title": "Stanford Encyclopedia of Philosophy"
+  },
+  {
+    "Id": "81d96ce7-99b3-4112-8527-16f3bf7317ab",
+    "Url": "https://dailynous.com/feed/",
+    "Title": "Daily Nous"
+  },
+  {
+    "Id": "de489e73-2dc8-4003-b2dc-b05721ba49f7",
+    "Url": "https://aeon.co/feed.rss",
+    "Title": "Aeon | a world of ideas"
+  },
+  {
+    "Id": "3f476387-876c-4a04-ad4f-056dd831106e",
+    "Url": "https://www.strongerbyscience.com/feed/",
+    "Title": "Stronger by Science"
+  },
+  {
+    "Id": "0ab306fe-61d5-4210-9f93-67767b0820cb",
     "Url": "https://devblogs.microsoft.com/dotnet/feed/",
     "Title": ".NET Blog"
   },
   {
-    "Id": "d4f10ffa-fc49-4596-9472-0ef9ccf93a16",
-    "Url": "https://feeds.hanselman.com/ScottHanselman",
-    "Title": "Scott Hanselman\u0027s Blog"
+    "Id": "8f71552c-c753-4b64-a9c6-4310c6fcb121",
+    "Url": "https://gist.githubusercontent.com/Eskndrani/2c321dd09e7ccaefe148ca7aef857066/raw/e25315a8c8c3e635538050e204a8e425c9d8685c/gistfile1.txt",
+    "Title": "Dark Web News"
   }
 ]

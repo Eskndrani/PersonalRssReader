@@ -1,0 +1,45 @@
+Software Architecture & Engineering
+Hacker News: https://news.ycombinator.com/rss
+
+Scott Hanselman's Blog: https://feeds.hanselman.com/ScottHanselman
+
+The .NET Blog: https://devblogs.microsoft.com/dotnet/feed/
+
+Martin Fowler: https://martinfowler.com/feed.atom
+
+The GitHub Blog: https://github.blog/feed/
+
+Stack Overflow Blog: https://stackoverflow.blog/feed/
+
+C++, Algorithms & Mathematics
+Sutter's Mill (Herb Sutter C++): https://herbsutter.com/feed/
+
+Quanta Magazine (Mathematics & Computing): https://api.quantamagazine.org/feed/
+
+GeeksforGeeks: https://www.geeksforgeeks.org/feed/
+
+Hardware & Microcontrollers
+Hackaday: https://hackaday.com/blog/feed/
+
+Arduino Blog: https://blog.arduino.cc/feed/
+
+Raspberry Pi News: https://www.raspberrypi.com/news/feed/
+
+Broader Technology News
+Ars Technica: https://feeds.arstechnica.com/arstechnica/index
+
+The Verge: https://www.theverge.com/rss/index.xml
+
+TechCrunch: https://techcrunch.com/feed/
+
+Smashing Magazine (Web/UI): https://www.smashingmagazine.com/feed/
+
+Deep Thinking & Philosophy
+Stanford Encyclopedia of Philosophy: https://plato.stanford.edu/rss/sep.xml
+
+Daily Nous: https://dailynous.com/feed/
+
+Aeon Essays: https://aeon.co/feed.rss
+
+Training & Nutrition
+Stronger by Science: https://www.strongerbyscience.com/feed/

@@ -26,7 +26,9 @@ function stripTags(html) {
   return tmp.textContent || tmp.innerText || "";
 }
 
+let allFeeds = [];
 let allArticles = [];
+let excludedFeedTitles = new Set();
 let currentPage = 1;
 const PAGE_SIZE = 10;
 
@@ -39,8 +41,7 @@ function getColorForFeed(feedTitle) {
   return `hsl(${hue}, 55%, 45%)`;
 }
 
-function openModal(globalIndex) {
-  const article = allArticles[globalIndex];
+function openModal(article) {
   if (!article) return;
 
   document.getElementById("modal-title").textContent = article.title;
@@ -69,6 +70,12 @@ async function loadFeeds() {
 }
 
 function renderFeedList(feeds) {
+  allFeeds = feeds;
+  const currentTitles = new Set(feeds.map((f) => f.title));
+  for (const title of excludedFeedTitles) {
+    if (!currentTitles.has(title)) excludedFeedTitles.delete(title);
+  }
+
   const list = document.getElementById("feed-list");
 
   if (feeds.length === 0) {
@@ -81,15 +88,51 @@ function renderFeedList(feeds) {
     .map(
       (f) => `
     <li class="feed-item">
+      <input type="checkbox" class="feed-toggle" data-id="${escapeAttr(f.id)}" ${excludedFeedTitles.has(f.title) ? "" : "checked"} title="Show/hide articles from this feed">
       <span class="feed-title" title="${escapeAttr(f.title)}">${escapeHtml(f.title)}</span>
+      <button class="feed-refresh" data-url="${escapeAttr(f.url)}" title="Refresh this feed">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="23 4 23 10 17 10"/>
+          <polyline points="1 20 1 14 7 14"/>
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+        </svg>
+      </button>
       <button class="feed-delete" data-id="${escapeAttr(f.id)}" title="Unsubscribe">&times;</button>
     </li>`
     )
     .join("");
+}
 
-  list.querySelectorAll(".feed-delete").forEach((btn) => {
-    btn.addEventListener("click", () => deleteFeed(btn.dataset.id));
-  });
+function toggleFeedVisibility(id) {
+  const feed = allFeeds.find((f) => f.id === id);
+  if (!feed) return;
+
+  if (excludedFeedTitles.has(feed.title)) {
+    excludedFeedTitles.delete(feed.title);
+  } else {
+    excludedFeedTitles.add(feed.title);
+  }
+  renderPage(currentPage);
+}
+
+async function refreshSingleFeed(url, btn) {
+  btn.disabled = true;
+  btn.classList.add("btn-refreshing");
+  try {
+    const res = await fetch("/api/refresh-feed", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url }),
+    });
+    if (!res.ok) throw new Error("Failed to refresh feed");
+    showToast("Feed refreshed.", false);
+    await loadNews();
+  } catch {
+    showToast("Could not refresh feed.", true);
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove("btn-refreshing");
+  }
 }
 
 async function deleteFeed(id) {
@@ -143,8 +186,12 @@ function renderPage(page) {
 
   container.textContent = "";
 
-  if (allArticles.length === 0) {
-    emptyState.textContent = "Your feed is quiet. Add some subscriptions on the left!";
+  const visibleArticles = allArticles.filter((a) => !excludedFeedTitles.has(a.feedTitle));
+
+  if (visibleArticles.length === 0) {
+    emptyState.textContent = allArticles.length === 0
+      ? "Your feed is quiet. Add some subscriptions on the left!"
+      : "No articles match your current filters.";
     emptyState.classList.remove("hidden");
     pagination.style.display = "none";
     return;
@@ -152,11 +199,11 @@ function renderPage(page) {
 
   emptyState.classList.add("hidden");
 
-  const totalPages = Math.ceil(allArticles.length / PAGE_SIZE);
+  const totalPages = Math.ceil(visibleArticles.length / PAGE_SIZE);
   currentPage = Math.max(1, Math.min(page, totalPages));
 
   const start = (currentPage - 1) * PAGE_SIZE;
-  const pageArticles = allArticles.slice(start, start + PAGE_SIZE);
+  const pageArticles = visibleArticles.slice(start, start + PAGE_SIZE);
 
   pageArticles.forEach((a, i) => {
     const card = document.createElement("article");
@@ -176,7 +223,7 @@ function renderPage(page) {
     link.href = a.link;
     link.target = "_blank";
     link.rel = "noopener noreferrer";
-    link.textContent = a.title;
+    link.innerHTML = a.title;
     title.appendChild(link);
 
     const meta = document.createElement("div");
@@ -191,8 +238,7 @@ function renderPage(page) {
     readMore.className = "btn btn-secondary";
     readMore.textContent = "Read More";
     readMore.style.marginTop = "0.5rem";
-    const articleIndex = start + i;
-    readMore.addEventListener("click", () => openModal(articleIndex));
+    readMore.addEventListener("click", () => openModal(a));
 
     card.appendChild(source);
     card.appendChild(title);
@@ -263,6 +309,24 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.getElementById("next-page-btn").addEventListener("click", () => {
     renderPage(currentPage + 1);
+  });
+
+  document.getElementById("feed-list").addEventListener("click", (e) => {
+    const toggle = e.target.closest(".feed-toggle");
+    if (toggle) {
+      toggleFeedVisibility(toggle.dataset.id);
+      return;
+    }
+    const refreshBtn = e.target.closest(".feed-refresh");
+    if (refreshBtn) {
+      refreshSingleFeed(refreshBtn.dataset.url, refreshBtn);
+      return;
+    }
+    const deleteBtn = e.target.closest(".feed-delete");
+    if (deleteBtn) {
+      deleteFeed(deleteBtn.dataset.id);
+      return;
+    }
   });
 
   document.getElementById("read-modal").querySelector(".modal-close").addEventListener("click", closeModal);
