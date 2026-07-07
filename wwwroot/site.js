@@ -26,9 +26,18 @@ function stripTags(html) {
   return tmp.textContent || tmp.innerText || "";
 }
 
+function debounce(fn, delay) {
+  let timer;
+  return function (...args) {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn.apply(this, args), delay);
+  };
+}
+
 let allFeeds = [];
 let allArticles = [];
 let excludedFeedTitles = new Set();
+let searchQuery = "";
 let currentPage = 1;
 const PAGE_SIZE = 10;
 
@@ -176,6 +185,17 @@ async function loadNews() {
   }
 }
 
+function getFilteredArticles() {
+  const q = searchQuery.trim().toLowerCase();
+  return allArticles.filter((a) => {
+    if (excludedFeedTitles.has(a.feedTitle)) return false;
+    if (!q) return true;
+    const titleText = (a.title ?? "").toLowerCase();
+    const summaryText = stripTags(a.summary ?? "").toLowerCase();
+    return titleText.includes(q) || summaryText.includes(q);
+  });
+}
+
 function renderPage(page) {
   const container = document.getElementById("articles-container");
   const emptyState = document.getElementById("empty-state");
@@ -186,12 +206,16 @@ function renderPage(page) {
 
   container.textContent = "";
 
-  const visibleArticles = allArticles.filter((a) => !excludedFeedTitles.has(a.feedTitle));
+  const visibleArticles = getFilteredArticles();
 
   if (visibleArticles.length === 0) {
-    emptyState.textContent = allArticles.length === 0
-      ? "Your feed is quiet. Add some subscriptions on the left!"
-      : "No articles match your current filters.";
+    if (allArticles.length === 0) {
+      emptyState.textContent = "Your feed is quiet. Add some subscriptions on the left!";
+    } else if (searchQuery.trim()) {
+      emptyState.textContent = "No articles match your search.";
+    } else {
+      emptyState.textContent = "No articles match your current filters.";
+    }
     emptyState.classList.remove("hidden");
     pagination.style.display = "none";
     return;
@@ -205,7 +229,9 @@ function renderPage(page) {
   const start = (currentPage - 1) * PAGE_SIZE;
   const pageArticles = visibleArticles.slice(start, start + PAGE_SIZE);
 
-  pageArticles.forEach((a, i) => {
+  const fragment = document.createDocumentFragment();
+
+  pageArticles.forEach((a) => {
     const card = document.createElement("article");
     card.className = "article-card";
 
@@ -246,8 +272,10 @@ function renderPage(page) {
     card.appendChild(summary);
     card.appendChild(readMore);
 
-    container.appendChild(card);
+    fragment.appendChild(card);
   });
+
+  container.appendChild(fragment);
 
   indicator.textContent = `Page ${currentPage} of ${totalPages}`;
   prevBtn.disabled = currentPage <= 1;
@@ -301,6 +329,23 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.getElementById("refresh-btn").addEventListener("click", () => {
     loadNews();
+  });
+
+  const debouncedSearch = debounce(() => {
+    searchQuery = document.getElementById("search-input").value;
+    renderPage(1);
+  }, 300);
+
+  document.getElementById("search-input").addEventListener("input", debouncedSearch);
+
+  document.getElementById("jump-page-input").addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    const totalPages = Math.ceil(getFilteredArticles().length / PAGE_SIZE);
+    const page = parseInt(e.target.value, 10);
+    if (isNaN(page)) return;
+    const clamped = Math.max(1, Math.min(page, totalPages));
+    e.target.value = "";
+    renderPage(clamped);
   });
 
   document.getElementById("prev-page-btn").addEventListener("click", () => {
