@@ -34,6 +34,28 @@ function debounce(fn, delay) {
   };
 }
 
+function initTheme() {
+  const saved = localStorage.getItem("theme");
+  if (saved === "dark" || saved === "light") {
+    document.documentElement.setAttribute("data-theme", saved);
+  }
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute("data-theme");
+  let isDark;
+  if (current === "dark") {
+    isDark = true;
+  } else if (current === "light") {
+    isDark = false;
+  } else {
+    isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  }
+  const next = isDark ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", next);
+  localStorage.setItem("theme", next);
+}
+
 let allFeeds = [];
 let allArticles = [];
 let excludedFeedTitles = new Set();
@@ -324,6 +346,10 @@ function setupAddFeedForm() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  initTheme();
+
+  document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
+
   loadFeeds();
   setupAddFeedForm();
 
