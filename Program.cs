@@ -1,5 +1,6 @@
 using System.Text.Json;
 using CodeHollow.FeedReader;
+using CodeHollow.FeedReader.Feeds;
 using Microsoft.Extensions.Caching.Memory;
 using Ganss.Xss;
 using System.Net;
@@ -36,11 +37,13 @@ app.MapPost("/api/feeds", async (FeedDto dto, IMemoryCache cache) =>
     var sanitizer = new HtmlSanitizer();
     try
     {
-        var feedData = await FeedReader.ReadAsync(dto.Url);
+        var feedXml = await httpClient.GetStringAsync(dto.Url);
+        var feedData = FeedReader.ReadFromString(feedXml);
         title = sanitizer.Sanitize(feedData.Title ?? dto.Url);
     }
-    catch
+    catch (Exception ex)
     {
+        Console.WriteLine($"Error fetching {dto.Url}: {ex.Message}");
         return Results.BadRequest("The URL does not point to a valid RSS/Atom feed.");
     }
 
@@ -85,23 +88,35 @@ app.MapGet("/api/news", async (IMemoryCache cache) =>
     {
         try
         {
-            var feedData = await FeedReader.ReadAsync(feed.Url);
+            var feedXml = await httpClient.GetStringAsync(feed.Url);
+            Console.WriteLine($"[DEBUG] {feed.Url} — first 500 chars:\n{feedXml[..Math.Min(500, feedXml.Length)]}");
+
+            var feedData = FeedReader.ReadFromString(feedXml);
+            Console.WriteLine($"[DEBUG] {feed.Url} — items found: {feedData.Items.Count}");
 
             anySucceeded = true;
 
-            return feedData.Items.Select(item => new Article(
-                FeedTitle: sanitizer.Sanitize(feed.Title),
-                Title: sanitizer.Sanitize(WebUtility.HtmlDecode(item.Title ?? "")),
-                Link: (Uri.TryCreate(item.Link, UriKind.Absolute, out var uri)
-                       && (uri.Scheme == "http" || uri.Scheme == "https"))
-                    ? uri.ToString()
-                    : "#",
-                PublishDate: item.PublishingDate ?? DateTime.UtcNow,
-                Summary: sanitizer.Sanitize(WebUtility.HtmlDecode(item.Description ?? ""))
-            ));
+            return feedData.Items.Select(item =>
+            {
+                var hasEnclosure = item.SpecificItem is Rss20FeedItem rss && rss.Enclosure != null;
+                Console.WriteLine($"[DEBUG]   Item: \"{item.Title}\" — has RSS enclosure: {hasEnclosure}");
+
+                return new Article(
+                    FeedTitle: sanitizer.Sanitize(feed.Title),
+                    Title: sanitizer.Sanitize(WebUtility.HtmlDecode(item.Title ?? "")),
+                    Link: (Uri.TryCreate(item.Link, UriKind.Absolute, out var uri)
+                           && (uri.Scheme == "http" || uri.Scheme == "https"))
+                        ? uri.ToString()
+                        : "#",
+                    PublishDate: item.PublishingDate ?? DateTime.UtcNow,
+                    Summary: sanitizer.Sanitize(WebUtility.HtmlDecode(item.Description ?? "")),
+                    AudioUrl: GetEnclosureAudioUrl(item)
+                );
+            });
         }
-        catch
+        catch (Exception ex)
         {
+            Console.WriteLine($"Error fetching {feed.Url}: {ex.Message}");
             return Enumerable.Empty<Article>();
         }
     });
@@ -131,10 +146,12 @@ app.MapPost("/api/refresh-feed", async (FeedDto dto, IMemoryCache cache) =>
     CodeHollow.FeedReader.Feed feedData;
     try
     {
-        feedData = await FeedReader.ReadAsync(dto.Url);
+        var feedXml = await httpClient.GetStringAsync(dto.Url);
+        feedData = FeedReader.ReadFromString(feedXml);
     }
-    catch
+    catch (Exception ex)
     {
+        Console.WriteLine($"Error fetching {dto.Url}: {ex.Message}");
         return Results.BadRequest("Failed to fetch the feed.");
     }
 
@@ -148,7 +165,8 @@ app.MapPost("/api/refresh-feed", async (FeedDto dto, IMemoryCache cache) =>
             ? uri.ToString()
             : "#",
         PublishDate: item.PublishingDate ?? DateTime.UtcNow,
-        Summary: sanitizer.Sanitize(WebUtility.HtmlDecode(item.Description ?? ""))
+        Summary: sanitizer.Sanitize(WebUtility.HtmlDecode(item.Description ?? "")),
+        AudioUrl: GetEnclosureAudioUrl(item)
     )).ToList();
 
     var cachedArticles = cache.TryGetValue("cached_news", out List<Article>? existing)
@@ -202,6 +220,35 @@ async Task WriteFeedsAsync(List<Feed> feeds)
     await JsonSerializer.SerializeAsync(stream, feeds, new JsonSerializerOptions { WriteIndented = true });
 }
 
+string? GetEnclosureAudioUrl(CodeHollow.FeedReader.FeedItem item)
+{
+    // 1. Check Standard RSS Enclosure
+    if (item.SpecificItem is CodeHollow.FeedReader.Feeds.Rss20FeedItem rssItem)
+    {
+        if (rssItem.Enclosure != null && rssItem.Enclosure.MediaType != null && rssItem.Enclosure.MediaType.StartsWith("audio"))
+            return rssItem.Enclosure.Url;
+            
+        // Check for Media RSS (used by many professional podcasts)
+        var mediaContent = rssItem.Element.Element("media:content");
+        if (mediaContent != null && mediaContent.Attribute("medium")?.Value == "audio")
+            return mediaContent.Attribute("url")?.Value;
+
+        return rssItem.Enclosure?.Url;
+    }
+    
+    // 2. Check Atom Fallback
+    else if (item.SpecificItem is CodeHollow.FeedReader.Feeds.AtomFeedItem atomItem)
+    {
+        var audioLink = atomItem.Links?.FirstOrDefault(l => 
+            l.Relation == "enclosure" || 
+            (l.LinkType != null && l.LinkType.StartsWith("audio")));
+            
+        return audioLink?.Href;
+    }
+
+    return null;
+}
+
 record Feed(string Id, string Url, string Title);
 record FeedDto(string Url);
-record Article(string FeedTitle, string Title, string Link, DateTime PublishDate, string Summary);
+record Article(string FeedTitle, string Title, string Link, DateTime PublishDate, string Summary, string? AudioUrl = null);

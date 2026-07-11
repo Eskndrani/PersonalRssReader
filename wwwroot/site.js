@@ -56,6 +56,129 @@ function toggleTheme() {
   localStorage.setItem("theme", next);
 }
 
+const translations = {
+  en: {
+    subscriptions: "Subscriptions",
+    pasteFeedUrl: "Paste RSS / Atom feed URL…",
+    add: "Add",
+    riverOfNews: "River of News",
+    refresh: "Refresh",
+    searchArticles: "Search articles…",
+    noArticles: "No articles yet.",
+    emptyHint: "Add subscriptions in the sidebar, then hit <strong>Refresh</strong>.",
+    previous: "Previous",
+    next: "Next",
+    jumpTo: "Jump to",
+    close: "Close",
+    readMore: "Read More",
+    pageOf: "Page {current} of {total}",
+    feedQuiet: "Your feed is quiet. Add some subscriptions on the left!",
+    noMatchSearch: "No articles match your search.",
+    noMatchFilter: "No articles match your current filters.",
+    noSubscriptions: "No subscriptions yet.",
+    couldNotLoadSubs: "Could not load subscriptions.",
+    feedRefreshed: "Feed refreshed.",
+    couldNotRefresh: "Could not refresh feed.",
+    feedRemoved: "Feed removed.",
+    couldNotRemove: "Could not remove feed.",
+    couldNotLoadArticles: "Could not load articles.",
+    feedAdded: "Feed added.",
+    adding: "Adding…",
+    showHideFeed: "Show/hide articles from this feed",
+    refreshThisFeed: "Refresh this feed",
+    unsubscribe: "Unsubscribe"
+  },
+  ar: {
+    subscriptions: "الاشتراكات",
+    pasteFeedUrl: "ألصق رابط RSS / Atom…",
+    add: "إضافة",
+    riverOfNews: "نهر الأخبار",
+    refresh: "تحديث",
+    searchArticles: "ابحث في المقالات…",
+    noArticles: "لا توجد مقالات بعد.",
+    emptyHint: "أضف اشتراكات من الشريط الجانبي، ثم اضغط <strong>تحديث</strong>.",
+    previous: "السابق",
+    next: "التالي",
+    jumpTo: "انتقال إلى",
+    close: "إغلاق",
+    readMore: "اقرأ المزيد",
+    pageOf: "الصفحة {current} من {total}",
+    feedQuiet: "لا توجد مقالات. أضف بعض الاشتراكات من اليسار!",
+    noMatchSearch: "لا توجد مقالات تطابق بحثك.",
+    noMatchFilter: "لا توجد مقالات تطابق عوامل التصفية الحالية.",
+    noSubscriptions: "لا توجد اشتراكات بعد.",
+    couldNotLoadSubs: "تعذر تحميل الاشتراكات.",
+    feedRefreshed: "تم تحديث الخلاصة.",
+    couldNotRefresh: "تعذر تحديث الخلاصة.",
+    feedRemoved: "تمت إزالة الخلاصة.",
+    couldNotRemove: "تعذرت إزالة الخلاصة.",
+    couldNotLoadArticles: "تعذر تحميل المقالات.",
+    feedAdded: "تمت إضافة الخلاصة.",
+    adding: "…جار الإضافة",
+    showHideFeed: "إظهار/إخفاء المقالات من هذه الخلاصة",
+    refreshThisFeed: "تحديث هذه الخلاصة",
+    unsubscribe: "إلغاء الاشتراك"
+  }
+};
+
+let currentLocale = "en";
+
+function t(key, vars) {
+  var str = (translations[currentLocale] && translations[currentLocale][key]) || (translations.en[key] || key);
+  if (vars) {
+    Object.keys(vars).forEach(function (k) {
+      str = str.replace("{" + k + "}", vars[k]);
+    });
+  }
+  return str;
+}
+
+function applyTranslations() {
+  document.querySelectorAll("[data-i18n]").forEach(function (el) {
+    var key = el.getAttribute("data-i18n");
+    if (!key) return;
+    if (key === "emptyHint") {
+      el.innerHTML = t(key);
+    } else {
+      el.textContent = t(key);
+    }
+  });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach(function (el) {
+    var key = el.getAttribute("data-i18n-placeholder");
+    if (key) el.placeholder = t(key);
+  });
+  document.querySelectorAll("[data-i18n-title]").forEach(function (el) {
+    var key = el.getAttribute("data-i18n-title");
+    if (key) el.title = t(key);
+  });
+}
+
+function initLocale() {
+  var saved = localStorage.getItem("locale");
+  if (saved === "ar" || saved === "en") {
+    currentLocale = saved;
+  }
+  applyLocale();
+  applyTranslations();
+}
+
+function applyLocale() {
+  document.documentElement.lang = currentLocale;
+  document.documentElement.dir = currentLocale === "ar" ? "rtl" : "ltr";
+  var toggle = document.getElementById("lang-toggle");
+  if (toggle) {
+    toggle.textContent = currentLocale === "ar" ? "English" : "العربية";
+  }
+}
+
+function toggleLocale() {
+  currentLocale = currentLocale === "ar" ? "en" : "ar";
+  localStorage.setItem("locale", currentLocale);
+  applyLocale();
+  applyTranslations();
+  renderPage(currentPage);
+}
+
 let allFeeds = [];
 let allArticles = [];
 let excludedFeedTitles = new Set();
@@ -75,13 +198,28 @@ function getColorForFeed(feedTitle) {
 function openModal(article) {
   if (!article) return;
 
-  document.getElementById("modal-title").textContent = article.title;
-  document.getElementById("modal-body").innerHTML = article.summary;
+  var modalTitle = document.getElementById("modal-title");
+  modalTitle.textContent = article.title;
+  modalTitle.dir = "auto";
+
+  var modalBody = document.getElementById("modal-body");
+  modalBody.dir = "auto";
+  modalBody.innerHTML = article.summary;
+
+  if (article.audioUrl) {
+    const audioEl = document.createElement("audio");
+    audioEl.controls = true;
+    audioEl.src = article.audioUrl;
+    audioEl.style.cssText = "width: 100%; margin-top: 1rem; margin-bottom: 1rem; border-radius: 8px;";
+    modalBody.appendChild(audioEl);
+  }
+
   document.getElementById("read-modal").style.display = "flex";
 }
 
 function closeModal() {
   document.getElementById("read-modal").style.display = "none";
+  document.getElementById("modal-body").innerHTML = "";
 }
 
 async function loadFeeds() {
@@ -95,8 +233,8 @@ async function loadFeeds() {
     await loadNews();
   } catch {
     list.innerHTML =
-      '<li class="feed-item" style="color:#9ca3af; padding:1rem 1.25rem;">No subscriptions yet.</li>';
-    showToast("Could not load subscriptions.", true);
+      '<li class="feed-item" style="color:#9ca3af; padding:1rem 1.25rem;">' + t("noSubscriptions") + '</li>';
+    showToast(t("couldNotLoadSubs"), true);
   }
 }
 
@@ -111,7 +249,7 @@ function renderFeedList(feeds) {
 
   if (feeds.length === 0) {
     list.innerHTML =
-      '<li class="feed-item" style="color:#9ca3af; padding:1rem 1.25rem;">No subscriptions yet.</li>';
+      '<li class="feed-item" style="color:#9ca3af; padding:1rem 1.25rem;">' + t("noSubscriptions") + '</li>';
     return;
   }
 
@@ -119,16 +257,16 @@ function renderFeedList(feeds) {
     .map(
       (f) => `
     <li class="feed-item">
-      <input type="checkbox" class="feed-toggle" data-id="${escapeAttr(f.id)}" ${excludedFeedTitles.has(f.title) ? "" : "checked"} title="Show/hide articles from this feed">
+      <input type="checkbox" class="feed-toggle" data-id="${escapeAttr(f.id)}" ${excludedFeedTitles.has(f.title) ? "" : "checked"} title="${escapeAttr(t("showHideFeed"))}">
       <span class="feed-title" title="${escapeAttr(f.title)}">${escapeHtml(f.title)}</span>
-      <button class="feed-refresh" data-url="${escapeAttr(f.url)}" title="Refresh this feed">
+      <button class="feed-refresh" data-url="${escapeAttr(f.url)}" title="${escapeAttr(t("refreshThisFeed"))}">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="23 4 23 10 17 10"/>
           <polyline points="1 20 1 14 7 14"/>
           <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
         </svg>
       </button>
-      <button class="feed-delete" data-id="${escapeAttr(f.id)}" title="Unsubscribe">&times;</button>
+      <button class="feed-delete" data-id="${escapeAttr(f.id)}" title="${escapeAttr(t("unsubscribe"))}">&times;</button>
     </li>`
     )
     .join("");
@@ -156,10 +294,10 @@ async function refreshSingleFeed(url, btn) {
       body: JSON.stringify({ url }),
     });
     if (!res.ok) throw new Error("Failed to refresh feed");
-    showToast("Feed refreshed.", false);
+    showToast(t("feedRefreshed"), false);
     await loadNews();
   } catch {
-    showToast("Could not refresh feed.", true);
+    showToast(t("couldNotRefresh"), true);
   } finally {
     btn.disabled = false;
     btn.classList.remove("btn-refreshing");
@@ -171,9 +309,9 @@ async function deleteFeed(id) {
     const res = await fetch(`/api/feeds/${id}`, { method: "DELETE" });
     if (!res.ok) throw new Error("Failed to delete feed");
     await loadFeeds();
-    showToast("Feed removed.", false);
+    showToast(t("feedRemoved"), false);
   } catch {
-    showToast("Could not remove feed.", true);
+    showToast(t("couldNotRemove"), true);
   }
 }
 
@@ -201,9 +339,9 @@ async function loadNews() {
     renderPage(1);
   } catch {
     container.textContent = "";
-    emptyState.textContent = "Your feed is quiet. Add some subscriptions on the left!";
+    emptyState.textContent = t("feedQuiet");
     emptyState.classList.remove("hidden");
-    showToast("Could not load articles.", true);
+    showToast(t("couldNotLoadArticles"), true);
   }
 }
 
@@ -232,11 +370,11 @@ function renderPage(page) {
 
   if (visibleArticles.length === 0) {
     if (allArticles.length === 0) {
-      emptyState.textContent = "Your feed is quiet. Add some subscriptions on the left!";
+      emptyState.textContent = t("feedQuiet");
     } else if (searchQuery.trim()) {
-      emptyState.textContent = "No articles match your search.";
+      emptyState.textContent = t("noMatchSearch");
     } else {
-      emptyState.textContent = "No articles match your current filters.";
+      emptyState.textContent = t("noMatchFilter");
     }
     emptyState.classList.remove("hidden");
     pagination.style.display = "none";
@@ -261,12 +399,13 @@ function renderPage(page) {
     source.className = "article-feed-source";
     const tag = document.createElement("span");
     tag.className = "feed-tag";
-    tag.textContent = a.feedTitle;
+    tag.innerHTML = a.feedTitle;
     tag.style.backgroundColor = getColorForFeed(a.feedTitle);
     source.appendChild(tag);
 
     const title = document.createElement("h3");
     title.className = "article-title";
+    title.dir = "auto";
     const link = document.createElement("a");
     link.href = a.link;
     link.target = "_blank";
@@ -280,11 +419,12 @@ function renderPage(page) {
 
     const summary = document.createElement("div");
     summary.className = "article-summary";
+    summary.dir = "auto";
     summary.innerHTML = a.summary;
 
     const readMore = document.createElement("button");
     readMore.className = "btn btn-secondary";
-    readMore.textContent = "Read More";
+    readMore.textContent = t("readMore");
     readMore.style.marginTop = "0.5rem";
     readMore.addEventListener("click", () => openModal(a));
 
@@ -292,6 +432,16 @@ function renderPage(page) {
     card.appendChild(title);
     card.appendChild(meta);
     card.appendChild(summary);
+
+    const audioLink = a.audioUrl || a.AudioUrl;
+    if (audioLink) {
+        const audioEl = document.createElement("audio");
+        audioEl.controls = true;
+        audioEl.src = audioLink;
+        audioEl.style.cssText = "width: 100%; margin-top: 1rem; margin-bottom: 1rem; border-radius: 8px;";
+        card.appendChild(audioEl);
+    }
+
     card.appendChild(readMore);
 
     fragment.appendChild(card);
@@ -299,7 +449,7 @@ function renderPage(page) {
 
   container.appendChild(fragment);
 
-  indicator.textContent = `Page ${currentPage} of ${totalPages}`;
+  indicator.textContent = t("pageOf", { current: currentPage, total: totalPages });
   prevBtn.disabled = currentPage <= 1;
   nextBtn.disabled = currentPage >= totalPages;
   pagination.style.display = "flex";
@@ -319,7 +469,7 @@ function setupAddFeedForm() {
 
     const btn = form.querySelector("button");
     btn.disabled = true;
-    btn.textContent = "Adding…";
+    btn.textContent = t("adding");
 
     try {
       const res = await fetch("/api/feeds", {
@@ -335,20 +485,22 @@ function setupAddFeedForm() {
 
       input.value = "";
       await loadFeeds();
-      showToast("Feed added.", false);
+      showToast(t("feedAdded"), false);
     } catch (err) {
       showToast(err.message, true);
     } finally {
       btn.disabled = false;
-      btn.textContent = "Add";
+      btn.textContent = t("add");
     }
   });
 }
 
 document.addEventListener("DOMContentLoaded", () => {
   initTheme();
+  initLocale();
 
   document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
+  document.getElementById("lang-toggle").addEventListener("click", toggleLocale);
 
   loadFeeds();
   setupAddFeedForm();

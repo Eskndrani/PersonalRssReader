@@ -12,28 +12,31 @@
 
     <aside class="sidebar">
       <div class="sidebar-header">
-        <h2>Subscriptions</h2>
-        <button id="theme-toggle" class="theme-toggle" title="Toggle dark mode" aria-label="Toggle dark mode">
-          <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="5"/>
-            <line x1="12" y1="1" x2="12" y2="3"/>
-            <line x1="12" y1="21" x2="12" y2="23"/>
-            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
-            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-            <line x1="1" y1="12" x2="3" y2="12"/>
-            <line x1="21" y1="12" x2="23" y2="12"/>
-            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
-            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-          </svg>
-          <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-          </svg>
-        </button>
+        <h2 data-i18n="subscriptions">Subscriptions</h2>
+        <div class="header-actions">
+          <button id="lang-toggle" class="lang-toggle" title="Switch language" aria-label="Switch language">العربية</button>
+          <button id="theme-toggle" class="theme-toggle" title="Toggle dark mode" aria-label="Toggle dark mode">
+            <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="5"/>
+              <line x1="12" y1="1" x2="12" y2="3"/>
+              <line x1="12" y1="21" x2="12" y2="23"/>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+              <line x1="1" y1="12" x2="3" y2="12"/>
+              <line x1="21" y1="12" x2="23" y2="12"/>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+            </svg>
+            <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            </svg>
+          </button>
+        </div>
       </div>
 
       <form id="add-feed-form" class="add-feed-form">
-        <input type="url" id="feed-url" placeholder="Paste RSS / Atom feed URL…" required autocomplete="off">
-        <button type="submit" class="btn btn-primary">Add</button>
+        <input type="url" id="feed-url" data-i18n-placeholder="pasteFeedUrl" placeholder="Paste RSS / Atom feed URL…" required autocomplete="off">
+        <button type="submit" class="btn btn-primary" data-i18n="add">Add</button>
       </form>
 
       <ul id="feed-list" class="feed-list">
@@ -51,19 +54,19 @@
 
     <main class="main">
       <div class="main-header">
-        <h1>River of News</h1>
+        <h1 data-i18n="riverOfNews">River of News</h1>
         <button id="refresh-btn" class="btn btn-secondary" title="Refresh articles">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="23 4 23 10 17 10"/>
             <polyline points="1 20 1 14 7 14"/>
             <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
           </svg>
-          Refresh
+          <span data-i18n="refresh">Refresh</span>
         </button>
       </div>
 
       <div class="search-bar">
-        <input type="text" id="search-input" placeholder="Search articles…" autocomplete="off">
+        <input type="text" id="search-input" data-i18n-placeholder="searchArticles" placeholder="Search articles…" autocomplete="off">
       </div>
 
       <div id="articles-container" class="articles-container">
@@ -88,16 +91,16 @@
       </div>
 
       <div id="empty-state" class="empty-state hidden">
-        <p>No articles yet.</p>
-        <p>Add subscriptions in the sidebar, then hit <strong>Refresh</strong>.</p>
+        <p data-i18n="noArticles">No articles yet.</p>
+        <p data-i18n="emptyHint">Add subscriptions in the sidebar, then hit <strong>Refresh</strong>.</p>
       </div>
 
       <div id="pagination-controls" class="pagination-controls" style="display: none;">
-        <button id="prev-page-btn" class="btn btn-secondary">Previous</button>
+        <button id="prev-page-btn" class="btn btn-secondary" data-i18n="previous">Previous</button>
         <span id="page-indicator">Page 1</span>
-        <button id="next-page-btn" class="btn btn-secondary">Next</button>
+        <button id="next-page-btn" class="btn btn-secondary" data-i18n="next">Next</button>
         <span class="jump-to-page">
-          <label for="jump-page-input">Jump to</label>
+          <label for="jump-page-input" data-i18n="jumpTo">Jump to</label>
           <input type="number" id="jump-page-input" min="1" placeholder="#" autocomplete="off">
         </span>
       </div>
@@ -110,7 +113,7 @@
   <div id="read-modal" class="modal" style="display: none;">
     <div class="modal-backdrop"></div>
     <div class="modal-content">
-      <button class="modal-close" title="Close">&times;</button>
+      <button class="modal-close" data-i18n-title="close" title="Close">&times;</button>
       <h2 id="modal-title"></h2>
       <div id="modal-body"></div>
     </div>
