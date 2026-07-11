@@ -1,9 +1,11 @@
+using System.Text;
 using System.Text.Json;
 using CodeHollow.FeedReader;
 using CodeHollow.FeedReader.Feeds;
 using Microsoft.Extensions.Caching.Memory;
 using Ganss.Xss;
 using System.Net;
+using System.Net.Http.Headers;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -37,7 +39,7 @@ app.MapPost("/api/feeds", async (FeedDto dto, IMemoryCache cache) =>
     var sanitizer = new HtmlSanitizer();
     try
     {
-        var feedXml = await httpClient.GetStringAsync(dto.Url);
+        var feedXml = await FetchFeedXmlAsync(dto.Url, dto.Username, dto.Password);
         var feedData = FeedReader.ReadFromString(feedXml);
         title = sanitizer.Sanitize(feedData.Title ?? dto.Url);
     }
@@ -47,7 +49,7 @@ app.MapPost("/api/feeds", async (FeedDto dto, IMemoryCache cache) =>
         return Results.BadRequest("The URL does not point to a valid RSS/Atom feed.");
     }
 
-    var feed = new Feed(Guid.NewGuid().ToString(), dto.Url, title);
+    var feed = new Feed(Guid.NewGuid().ToString(), dto.Url, title, dto.Username, dto.Password);
     feeds.Add(feed);
     await WriteFeedsAsync(feeds);
 
@@ -88,7 +90,7 @@ app.MapGet("/api/news", async (IMemoryCache cache) =>
     {
         try
         {
-            var feedXml = await httpClient.GetStringAsync(feed.Url);
+            var feedXml = await FetchFeedXmlAsync(feed.Url, feed.Username, feed.Password);
             Console.WriteLine($"[DEBUG] {feed.Url} — first 500 chars:\n{feedXml[..Math.Min(500, feedXml.Length)]}");
 
             var feedData = FeedReader.ReadFromString(feedXml);
@@ -146,7 +148,7 @@ app.MapPost("/api/refresh-feed", async (FeedDto dto, IMemoryCache cache) =>
     CodeHollow.FeedReader.Feed feedData;
     try
     {
-        var feedXml = await httpClient.GetStringAsync(dto.Url);
+        var feedXml = await FetchFeedXmlAsync(feed.Url, feed.Username, feed.Password);
         feedData = FeedReader.ReadFromString(feedXml);
     }
     catch (Exception ex)
@@ -220,6 +222,21 @@ async Task WriteFeedsAsync(List<Feed> feeds)
     await JsonSerializer.SerializeAsync(stream, feeds, new JsonSerializerOptions { WriteIndented = true });
 }
 
+async Task<string> FetchFeedXmlAsync(string url, string? username, string? password)
+{
+    var request = new HttpRequestMessage(HttpMethod.Get, url);
+
+    if (!string.IsNullOrEmpty(username) && !string.IsNullOrEmpty(password))
+    {
+        var credentials = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{username}:{password}"));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Basic", credentials);
+    }
+
+    var response = await httpClient.SendAsync(request);
+    response.EnsureSuccessStatusCode();
+    return await response.Content.ReadAsStringAsync();
+}
+
 string? GetEnclosureAudioUrl(CodeHollow.FeedReader.FeedItem item)
 {
     // 1. Check Standard RSS Enclosure
@@ -249,6 +266,6 @@ string? GetEnclosureAudioUrl(CodeHollow.FeedReader.FeedItem item)
     return null;
 }
 
-record Feed(string Id, string Url, string Title);
-record FeedDto(string Url);
+record Feed(string Id, string Url, string Title, string? Username = null, string? Password = null);
+record FeedDto(string Url, string? Username = null, string? Password = null);
 record Article(string FeedTitle, string Title, string Link, DateTime PublishDate, string Summary, string? AudioUrl = null);

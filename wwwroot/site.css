@@ -280,9 +280,39 @@ h1, h2, h3 {
 
 .add-feed-form {
   display: flex;
+  flex-direction: column;
   gap: 0.5rem;
   padding: 0.75rem 1.25rem;
   border-bottom: 1px solid var(--color-border-light);
+}
+
+.add-feed-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.add-feed-credentials {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.add-feed-credentials input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--color-border-input);
+  border-radius: 6px;
+  font-size: 0.75rem;
+  background: var(--color-input-bg);
+  color: var(--color-text);
+  transition: all 0.2s ease;
+}
+
+.add-feed-credentials input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-focus-ring-sm);
+  background: var(--color-surface);
 }
 
 .add-feed-form input {

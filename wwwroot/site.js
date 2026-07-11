@@ -460,6 +460,8 @@ function renderPage(page) {
 function setupAddFeedForm() {
   const form = document.getElementById("add-feed-form");
   const input = document.getElementById("feed-url");
+  const usernameInput = document.getElementById("feed-username");
+  const passwordInput = document.getElementById("feed-password");
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -467,7 +469,10 @@ function setupAddFeedForm() {
     const url = input.value.trim();
     if (!url) return;
 
-    const btn = form.querySelector("button");
+    const username = usernameInput.value.trim() || null;
+    const password = passwordInput.value.trim() || null;
+
+    const btn = form.querySelector("button[type='submit']");
     btn.disabled = true;
     btn.textContent = t("adding");
 
@@ -475,7 +480,7 @@ function setupAddFeedForm() {
       const res = await fetch("/api/feeds", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url, username, password }),
       });
 
       if (!res.ok) {
@@ -484,6 +489,8 @@ function setupAddFeedForm() {
       }
 
       input.value = "";
+      usernameInput.value = "";
+      passwordInput.value = "";
       await loadFeeds();
       showToast(t("feedAdded"), false);
     } catch (err) {
