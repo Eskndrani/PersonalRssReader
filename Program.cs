@@ -2,23 +2,29 @@ using System.Text;
 using System.Text.Json;
 using CodeHollow.FeedReader;
 using CodeHollow.FeedReader.Feeds;
-using Microsoft.Extensions.Caching.Memory;
+using Microsoft.EntityFrameworkCore;
 using Ganss.Xss;
 using System.Net;
 using System.Net.Http.Headers;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddMemoryCache(); // Enable Caching
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseSqlite("Data Source=articles.db"));
 
 var app = builder.Build();
 
-app.UseDefaultFiles(); // Look for an index.html file
-app.UseStaticFiles();  // Serve CSS, JS, and HTML files
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    db.Database.EnsureCreated();
+}
+
+app.UseDefaultFiles();
+app.UseStaticFiles();
 
 var httpClient = new HttpClient();
 
-// this user agent is used to avoid 403 errors from some websites that block requests from unknown clients
 httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
 
 
@@ -28,7 +34,7 @@ app.MapGet("/api/feeds", async () =>
     return Results.Ok(feeds);
 });
 
-app.MapPost("/api/feeds", async (FeedDto dto, IMemoryCache cache) =>
+app.MapPost("/api/feeds", async (FeedDto dto) =>
 {
     var feeds = await ReadFeedsAsync();
 
@@ -53,12 +59,10 @@ app.MapPost("/api/feeds", async (FeedDto dto, IMemoryCache cache) =>
     feeds.Add(feed);
     await WriteFeedsAsync(feeds);
 
-    cache.Remove("cached_news");
-
     return Results.Created($"/api/feeds/{feed.Id}", feed);
 });
 
-app.MapDelete("/api/feeds/{id}", async (string id, IMemoryCache cache) =>
+app.MapDelete("/api/feeds/{id}", async (string id) =>
 {
     var feeds = await ReadFeedsAsync();
     var feed = feeds.FirstOrDefault(f => f.Id == id);
@@ -69,22 +73,14 @@ app.MapDelete("/api/feeds/{id}", async (string id, IMemoryCache cache) =>
     feeds.Remove(feed);
     await WriteFeedsAsync(feeds);
 
-    cache.Remove("cached_news");
-
     return Results.NoContent();
 });
 
-app.MapGet("/api/news", async (IMemoryCache cache) =>
+app.MapGet("/api/news", async (AppDbContext db) =>
 {
-    if (cache.TryGetValue("cached_news", out List<Article>? cachedArticles))
-    {
-        return Results.Ok(cachedArticles);
-    }
-
     var feeds = await ReadFeedsAsync();
     var sanitizer = new HtmlSanitizer();
-
-    var anySucceeded = false;
+    var now = DateTime.UtcNow;
 
     var tasks = feeds.Select(async feed =>
     {
@@ -96,47 +92,74 @@ app.MapGet("/api/news", async (IMemoryCache cache) =>
             var feedData = FeedReader.ReadFromString(feedXml);
             Console.WriteLine($"[DEBUG] {feed.Url} — items found: {feedData.Items.Count}");
 
-            anySucceeded = true;
+            var feedTitle = sanitizer.Sanitize(feed.Title);
+            var items = new List<ArticleEntity>();
 
-            return feedData.Items.Select(item =>
+            foreach (var item in feedData.Items)
             {
                 var hasEnclosure = item.SpecificItem is Rss20FeedItem rss && rss.Enclosure != null;
                 Console.WriteLine($"[DEBUG]   Item: \"{item.Title}\" — has RSS enclosure: {hasEnclosure}");
 
-                return new Article(
-                    FeedTitle: sanitizer.Sanitize(feed.Title),
-                    Title: sanitizer.Sanitize(WebUtility.HtmlDecode(item.Title ?? "")),
-                    Link: (Uri.TryCreate(item.Link, UriKind.Absolute, out var uri)
+                var link = (Uri.TryCreate(item.Link, UriKind.Absolute, out var uri)
                            && (uri.Scheme == "http" || uri.Scheme == "https"))
-                        ? uri.ToString()
-                        : "#",
-                    PublishDate: item.PublishingDate ?? DateTime.UtcNow,
-                    Summary: sanitizer.Sanitize(WebUtility.HtmlDecode(item.Description ?? "")),
-                    AudioUrl: GetEnclosureAudioUrl(item)
-                );
-            });
+                    ? uri.ToString()
+                    : GenerateLinkId(feedTitle, item.Title, item.PublishingDate ?? now);
+
+                items.Add(new ArticleEntity
+                {
+                    FeedTitle = feedTitle,
+                    Title = sanitizer.Sanitize(WebUtility.HtmlDecode(item.Title ?? "")),
+                    Link = link,
+                    PublishDate = item.PublishingDate ?? now,
+                    Summary = sanitizer.Sanitize(WebUtility.HtmlDecode(item.Description ?? "")),
+                    AudioUrl = GetEnclosureAudioUrl(item)
+                });
+            }
+
+            return items;
         }
         catch (Exception ex)
         {
             Console.WriteLine($"Error fetching {feed.Url}: {ex.Message}");
-            return Enumerable.Empty<Article>();
+            return new List<ArticleEntity>();
         }
     });
 
     var results = await Task.WhenAll(tasks);
-    var articles = results.SelectMany(a => a)
-        .OrderByDescending(a => a.PublishDate)
+    var parsedArticles = results.SelectMany(x => x)
+        .GroupBy(a => a.Link)
+        .Select(g => g.First())
         .ToList();
 
-    if (anySucceeded)
+    if (parsedArticles.Count > 0)
     {
-        cache.Set("cached_news", articles, TimeSpan.FromMinutes(5));
+        var existing = (await db.Articles.Select(a => a.Link).ToListAsync()).ToHashSet();
+
+        var newArticles = parsedArticles.Where(a => !existing.Contains(a.Link)).ToList();
+        if (newArticles.Count > 0)
+        {
+            db.Articles.AddRange(newArticles);
+            await db.SaveChangesAsync();
+        }
     }
+
+    var cutoff = DateTime.UtcNow.AddDays(-14);
+    var oldArticles = await db.Articles.Where(a => a.PublishDate < cutoff).ToListAsync();
+    if (oldArticles.Count > 0)
+    {
+        db.Articles.RemoveRange(oldArticles);
+        await db.SaveChangesAsync();
+    }
+
+    var articles = await db.Articles
+        .OrderByDescending(a => a.PublishDate)
+        .Select(a => new Article(a.FeedTitle, a.Title, a.Link, a.PublishDate, a.Summary, a.AudioUrl))
+        .ToListAsync();
 
     return Results.Ok(articles);
 });
 
-app.MapPost("/api/refresh-feed", async (FeedDto dto, IMemoryCache cache) =>
+app.MapPost("/api/refresh-feed", async (FeedDto dto, AppDbContext db) =>
 {
     var feeds = await ReadFeedsAsync();
     var feed = feeds.FirstOrDefault(f => f.Url == dto.Url);
@@ -158,35 +181,49 @@ app.MapPost("/api/refresh-feed", async (FeedDto dto, IMemoryCache cache) =>
     }
 
     var sanitizedTitle = sanitizer.Sanitize(feedData.Title ?? feed.Title);
+    var now = DateTime.UtcNow;
 
-    var freshArticles = feedData.Items.Select(item => new Article(
-        FeedTitle: sanitizedTitle,
-        Title: sanitizer.Sanitize(WebUtility.HtmlDecode(item.Title ?? "")),
-        Link: (Uri.TryCreate(item.Link, UriKind.Absolute, out var uri)
-               && (uri.Scheme == "http" || uri.Scheme == "https"))
+    var freshArticles = new List<ArticleEntity>();
+    foreach (var item in feedData.Items)
+    {
+        var link = (Uri.TryCreate(item.Link, UriKind.Absolute, out var uri)
+                   && (uri.Scheme == "http" || uri.Scheme == "https"))
             ? uri.ToString()
-            : "#",
-        PublishDate: item.PublishingDate ?? DateTime.UtcNow,
-        Summary: sanitizer.Sanitize(WebUtility.HtmlDecode(item.Description ?? "")),
-        AudioUrl: GetEnclosureAudioUrl(item)
-    )).ToList();
+            : GenerateLinkId(sanitizedTitle, item.Title, item.PublishingDate ?? now);
 
-    var cachedArticles = cache.TryGetValue("cached_news", out List<Article>? existing)
-        ? existing ?? []
-        : [];
+        freshArticles.Add(new ArticleEntity
+        {
+            FeedTitle = sanitizedTitle,
+            Title = sanitizer.Sanitize(WebUtility.HtmlDecode(item.Title ?? "")),
+            Link = link,
+            PublishDate = item.PublishingDate ?? now,
+            Summary = sanitizer.Sanitize(WebUtility.HtmlDecode(item.Description ?? "")),
+            AudioUrl = GetEnclosureAudioUrl(item)
+        });
+    }
 
-    var updatedArticles = cachedArticles
-        .Where(a => a.FeedTitle != feed.Title && a.FeedTitle != sanitizedTitle)
-        .Concat(freshArticles)
-        .OrderByDescending(a => a.PublishDate)
-        .ToList();
+    freshArticles = freshArticles.GroupBy(a => a.Link).Select(g => g.First()).ToList();
 
-    cache.Set("cached_news", updatedArticles, TimeSpan.FromMinutes(5));
+    var existing = (await db.Articles.Select(a => a.Link).ToListAsync()).ToHashSet();
+
+    var newArticles = freshArticles.Where(a => !existing.Contains(a.Link)).ToList();
+    if (newArticles.Count > 0)
+    {
+        db.Articles.AddRange(newArticles);
+        await db.SaveChangesAsync();
+    }
+
+    var cutoff = DateTime.UtcNow.AddDays(-14);
+    var oldArticles = await db.Articles.Where(a => a.PublishDate < cutoff).ToListAsync();
+    if (oldArticles.Count > 0)
+    {
+        db.Articles.RemoveRange(oldArticles);
+        await db.SaveChangesAsync();
+    }
 
     return Results.Ok();
 });
 
-// TEMPORARY ENDPOINT FOR SECURITY TESTING
 app.MapGet("/api/hacker", () =>
 {
     var xml = @"<?xml version=""1.0"" encoding=""UTF-8"" ?>
@@ -239,31 +276,64 @@ async Task<string> FetchFeedXmlAsync(string url, string? username, string? passw
 
 string? GetEnclosureAudioUrl(CodeHollow.FeedReader.FeedItem item)
 {
-    // 1. Check Standard RSS Enclosure
     if (item.SpecificItem is CodeHollow.FeedReader.Feeds.Rss20FeedItem rssItem)
     {
         if (rssItem.Enclosure != null && rssItem.Enclosure.MediaType != null && rssItem.Enclosure.MediaType.StartsWith("audio"))
             return rssItem.Enclosure.Url;
-            
-        // Check for Media RSS (used by many professional podcasts)
+
         var mediaContent = rssItem.Element.Element("media:content");
         if (mediaContent != null && mediaContent.Attribute("medium")?.Value == "audio")
             return mediaContent.Attribute("url")?.Value;
 
         return rssItem.Enclosure?.Url;
     }
-    
-    // 2. Check Atom Fallback
     else if (item.SpecificItem is CodeHollow.FeedReader.Feeds.AtomFeedItem atomItem)
     {
-        var audioLink = atomItem.Links?.FirstOrDefault(l => 
-            l.Relation == "enclosure" || 
+        var audioLink = atomItem.Links?.FirstOrDefault(l =>
+            l.Relation == "enclosure" ||
             (l.LinkType != null && l.LinkType.StartsWith("audio")));
-            
+
         return audioLink?.Href;
     }
 
     return null;
+}
+
+string GenerateLinkId(string feedTitle, string? title, DateTime publishDate)
+{
+    var raw = $"{feedTitle}|{title}|{publishDate.Ticks}";
+    var bytes = Encoding.UTF8.GetBytes(raw);
+    var hash = Convert.ToBase64String(System.Security.Cryptography.SHA256.HashData(bytes))
+        .Replace("/", "_").Replace("+", "-")[..32];
+    return $"__gen__/{hash}";
+}
+
+class ArticleEntity
+{
+    public int Id { get; set; }
+    public string Title { get; set; } = "";
+    public string Summary { get; set; } = "";
+    public string FeedTitle { get; set; } = "";
+    public DateTime PublishDate { get; set; }
+    public string Link { get; set; } = "";
+    public string? AudioUrl { get; set; }
+}
+
+class AppDbContext : DbContext
+{
+    public DbSet<ArticleEntity> Articles => Set<ArticleEntity>();
+
+    public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<ArticleEntity>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.Link).IsUnique();
+            entity.HasIndex(e => e.PublishDate);
+        });
+    }
 }
 
 record Feed(string Id, string Url, string Title, string? Username = null, string? Password = null);
