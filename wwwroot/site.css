@@ -715,6 +715,21 @@ h1, h2, h3 {
   margin: 0;
 }
 
+.audio-player-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.audio-custom-controls {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
 .feed-tag {
   display: inline-block;
   background: var(--color-accent);

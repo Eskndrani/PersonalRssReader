@@ -230,6 +230,74 @@ function getColorForFeed(feedTitle) {
   return `hsl(${hue}, 55%, 45%)`;
 }
 
+function buildAudioPlayer(audioSrc) {
+  var audioContainer = document.createElement("div");
+  audioContainer.className = "audio-player-wrapper";
+
+  var audioEl = document.createElement("audio");
+  audioEl.controls = true;
+  audioEl.src = audioSrc;
+  audioEl.style.cssText = "width: 100%; border-radius: 8px;";
+
+  var storageKey = "audio_pos_" + audioSrc;
+  var savePosition = debounce(function (currentTime) {
+    localStorage.setItem(storageKey, currentTime);
+  }, 2000);
+
+  audioEl.addEventListener("loadedmetadata", function () {
+    var saved = localStorage.getItem(storageKey);
+    if (saved) {
+      audioEl.currentTime = parseFloat(saved) || 0;
+    }
+  });
+
+  audioEl.addEventListener("timeupdate", function () {
+    savePosition(audioEl.currentTime);
+  });
+
+  var controls = document.createElement("div");
+  controls.className = "audio-custom-controls";
+
+  var btnSkipBack = document.createElement("button");
+  btnSkipBack.className = "btn btn-secondary";
+  btnSkipBack.setAttribute("aria-label", "Skip backward 15 seconds");
+  btnSkipBack.textContent = "-15s";
+  btnSkipBack.addEventListener("click", function () {
+    audioEl.currentTime = Math.max(0, audioEl.currentTime - 15);
+  });
+
+  var speeds = [1, 1.25, 1.5, 2];
+  var speedIndex = 0;
+  var btnSpeed = document.createElement("button");
+  btnSpeed.className = "btn btn-secondary";
+  btnSpeed.setAttribute("aria-label", "Change playback speed");
+  btnSpeed.textContent = "1x Speed";
+  btnSpeed.addEventListener("click", function () {
+    speedIndex = (speedIndex + 1) % speeds.length;
+    audioEl.playbackRate = speeds[speedIndex];
+    btnSpeed.textContent = speeds[speedIndex] + "x Speed";
+  });
+
+  var btnSkipForward = document.createElement("button");
+  btnSkipForward.className = "btn btn-secondary";
+  btnSkipForward.setAttribute("aria-label", "Skip forward 15 seconds");
+  btnSkipForward.textContent = "+15s";
+  btnSkipForward.addEventListener("click", function () {
+    if (audioEl.duration && isFinite(audioEl.duration)) {
+      audioEl.currentTime = Math.min(audioEl.duration, audioEl.currentTime + 15);
+    }
+  });
+
+  controls.appendChild(btnSkipBack);
+  controls.appendChild(btnSpeed);
+  controls.appendChild(btnSkipForward);
+
+  audioContainer.appendChild(audioEl);
+  audioContainer.appendChild(controls);
+
+  return audioContainer;
+}
+
 function openModal(article) {
   if (!article) return;
 
@@ -242,11 +310,7 @@ function openModal(article) {
   modalBody.innerHTML = article.summary;
 
   if (article.audioUrl && !article.audioUrl.toLowerCase().includes(".webm") && !article.audioUrl.toLowerCase().includes(".mp4")) {
-    const audioEl = document.createElement("audio");
-    audioEl.controls = true;
-    audioEl.src = article.audioUrl;
-    audioEl.style.cssText = "width: 100%; margin-top: 1rem; margin-bottom: 1rem; border-radius: 8px;";
-    modalBody.appendChild(audioEl);
+    modalBody.appendChild(buildAudioPlayer(article.audioUrl));
   }
 
   document.getElementById("read-modal").style.display = "flex";
@@ -526,11 +590,7 @@ function renderPage(page) {
 
     const audioLink = a.audioUrl || a.AudioUrl;
     if (audioLink && !audioLink.toLowerCase().includes(".webm") && !audioLink.toLowerCase().includes(".mp4")) {
-        const audioEl = document.createElement("audio");
-        audioEl.controls = true;
-        audioEl.src = audioLink;
-        audioEl.style.cssText = "width: 100%; margin-top: 1rem; margin-bottom: 1rem; border-radius: 8px;";
-        card.appendChild(audioEl);
+        card.appendChild(buildAudioPlayer(audioLink));
     }
 
     card.appendChild(readMore);
