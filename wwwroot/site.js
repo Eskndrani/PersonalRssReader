@@ -86,7 +86,11 @@ const translations = {
     adding: "Adding…",
     showHideFeed: "Show/hide articles from this feed",
     refreshThisFeed: "Refresh this feed",
-    unsubscribe: "Unsubscribe"
+    unsubscribe: "Unsubscribe",
+    processingBatch: "Processing Batch…",
+    feedsAdded: "{added} feed(s) added.",
+    feedsFailed: "{failed} feed(s) failed.",
+    batchAdded: "{added} added, {failed} failed."
   },
   ar: {
     subscriptions: "الاشتراكات",
@@ -117,7 +121,11 @@ const translations = {
     adding: "…جار الإضافة",
     showHideFeed: "إظهار/إخفاء المقالات من هذه الخلاصة",
     refreshThisFeed: "تحديث هذه الخلاصة",
-    unsubscribe: "إلغاء الاشتراك"
+    unsubscribe: "إلغاء الاشتراك",
+    processingBatch: "…جار معالجة الدفعة",
+    feedsAdded: "تمت إضافة {added} خلاصة.",
+    feedsFailed: "{failed} خلاصات فشلت.",
+    batchAdded: "تمت إضافة {added}، {failed} فشلت."
   }
 };
 
@@ -459,40 +467,53 @@ function renderPage(page) {
 
 function setupAddFeedForm() {
   const form = document.getElementById("add-feed-form");
-  const input = document.getElementById("feed-url");
+  const textarea = document.getElementById("feed-url");
   const usernameInput = document.getElementById("feed-username");
   const passwordInput = document.getElementById("feed-password");
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
 
-    const url = input.value.trim();
-    if (!url) return;
+    const raw = textarea.value.trim();
+    if (!raw) return;
+
+    const urls = raw.split("\n")
+      .map(function (line) { return line.trim(); })
+      .filter(function (line) { return line.length > 0; });
+
+    if (urls.length === 0) return;
 
     const username = usernameInput.value.trim() || null;
     const password = passwordInput.value.trim() || null;
 
     const btn = form.querySelector("button[type='submit']");
     btn.disabled = true;
-    btn.textContent = t("adding");
+    btn.textContent = t("processingBatch");
 
     try {
-      const res = await fetch("/api/feeds", {
+      const res = await fetch("/api/feeds/batch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, username, password }),
+        body: JSON.stringify({ urls: urls, username: username, password: password }),
       });
 
       if (!res.ok) {
         const text = await res.text();
-        throw new Error(text || "Invalid feed URL");
+        throw new Error(text || "Batch import failed");
       }
 
-      input.value = "";
+      const result = await res.json();
+
+      textarea.value = "";
       usernameInput.value = "";
       passwordInput.value = "";
       await loadFeeds();
-      showToast(t("feedAdded"), false);
+
+      if (result.added > 0 && result.failed === 0) {
+        showToast(t("feedsAdded", { added: result.added }), false);
+      } else if (result.failed > 0) {
+        showToast(t("batchAdded", { added: result.added, failed: result.failed }), true);
+      }
     } catch (err) {
       showToast(err.message, true);
     } finally {
@@ -511,6 +532,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
   loadFeeds();
   setupAddFeedForm();
+
+  document.getElementById("feed-search-sidebar").addEventListener("input", filterSidebarFeeds);
 
   document.getElementById("refresh-btn").addEventListener("click", () => {
     loadNews();
@@ -563,6 +586,24 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.getElementById("read-modal").querySelector(".modal-backdrop").addEventListener("click", closeModal);
 });
+
+function filterSidebarFeeds() {
+  var query = document.getElementById("feed-search-sidebar").value.trim().toLowerCase();
+  var items = document.querySelectorAll("#feed-list .feed-item");
+
+  items.forEach(function (item) {
+    var titleSpan = item.querySelector(".feed-title");
+    if (!titleSpan) return;
+
+    var title = (titleSpan.textContent || "").toLowerCase();
+
+    if (!query || title.indexOf(query) !== -1) {
+      item.style.display = "";
+    } else {
+      item.style.display = "none";
+    }
+  });
+}
 
 function escapeHtml(str) {
   const div = document.createElement("div");

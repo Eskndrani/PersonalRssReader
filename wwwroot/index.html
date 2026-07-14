@@ -35,15 +35,15 @@
       </div>
 
       <form id="add-feed-form" class="add-feed-form">
-        <div class="add-feed-row">
-          <input type="url" id="feed-url" data-i18n-placeholder="pasteFeedUrl" placeholder="Paste RSS / Atom feed URL…" required autocomplete="off">
-          <button type="submit" class="btn btn-primary" data-i18n="add">Add</button>
-        </div>
+        <textarea id="feed-url" rows="3" placeholder="Paste one or more URLs (one per line)" required autocomplete="off"></textarea>
         <div class="add-feed-credentials">
           <input type="text" id="feed-username" placeholder="Username (optional)" autocomplete="off">
           <input type="password" id="feed-password" placeholder="Password (optional)" autocomplete="off">
         </div>
+        <button type="submit" class="btn btn-primary add-feed-btn" data-i18n="add">Add</button>
       </form>
+
+      <input type="text" id="feed-search-sidebar" class="feed-search-sidebar" placeholder="Search subscriptions…" autocomplete="off">
 
       <ul id="feed-list" class="feed-list">
         <li class="feed-item skeleton-feed">

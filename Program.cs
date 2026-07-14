@@ -62,6 +62,59 @@ app.MapPost("/api/feeds", async (FeedDto dto) =>
     return Results.Created($"/api/feeds/{feed.Id}", feed);
 });
 
+app.MapPost("/api/feeds/batch", async (BatchFeedDto dto) =>
+{
+    var feeds = await ReadFeedsAsync();
+    var existingUrls = new HashSet<string>(feeds.Select(f => f.Url));
+    var sanitizer = new HtmlSanitizer();
+
+    var newUrls = dto.Urls
+        .Select(u => u.Trim())
+        .Where(u => !string.IsNullOrEmpty(u) && !existingUrls.Contains(u))
+        .Distinct()
+        .ToArray();
+
+    if (newUrls.Length == 0)
+        return Results.Ok(new { Added = 0, Failed = 0 });
+
+    var semaphore = new SemaphoreSlim(10);
+    var added = 0;
+    var failed = 0;
+
+    var tasks = newUrls.Select(async url =>
+    {
+        await semaphore.WaitAsync();
+        try
+        {
+            var feedXml = await FetchFeedXmlAsync(url, dto.Username, dto.Password);
+            var feedData = FeedReader.ReadFromString(feedXml);
+            var title = sanitizer.Sanitize(feedData.Title ?? url);
+
+            lock (feeds)
+            {
+                feeds.Add(new Feed(Guid.NewGuid().ToString(), url, title, dto.Username, dto.Password));
+                Interlocked.Increment(ref added);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error fetching {url}: {ex.Message}");
+            Interlocked.Increment(ref failed);
+        }
+        finally
+        {
+            semaphore.Release();
+        }
+    });
+
+    await Task.WhenAll(tasks);
+
+    if (added > 0)
+        await WriteFeedsAsync(feeds);
+
+    return Results.Ok(new { Added = added, Failed = failed });
+});
+
 app.MapDelete("/api/feeds/{id}", async (string id) =>
 {
     var feeds = await ReadFeedsAsync();
@@ -338,4 +391,5 @@ class AppDbContext : DbContext
 
 record Feed(string Id, string Url, string Title, string? Username = null, string? Password = null);
 record FeedDto(string Url, string? Username = null, string? Password = null);
+record BatchFeedDto(string[] Urls, string? Username = null, string? Password = null);
 record Article(string FeedTitle, string Title, string Link, DateTime PublishDate, string Summary, string? AudioUrl = null);
