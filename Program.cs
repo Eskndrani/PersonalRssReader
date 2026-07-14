@@ -51,10 +51,9 @@ app.MapPost("/api/feeds", async (FeedDto dto) =>
         var feedData = FeedReader.ReadFromString(feedXml);
         title = sanitizer.Sanitize(feedData.Title ?? dto.Url);
     }
-    catch (Exception ex)
-    {
-        Console.WriteLine($"Error fetching {dto.Url}: {ex.Message}");
-        return Results.BadRequest("The URL does not point to a valid RSS/Atom feed.");
+        catch (Exception)
+        {
+            return Results.BadRequest("The URL does not point to a valid RSS/Atom feed.");
     }
 
     var feed = new Feed(Guid.NewGuid().ToString(), dto.Url, title, dto.Username, dto.Password);
@@ -98,9 +97,8 @@ app.MapPost("/api/feeds/batch", async (BatchFeedDto dto) =>
                 Interlocked.Increment(ref added);
             }
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            Console.WriteLine($"Error fetching {url}: {ex.Message}");
             Interlocked.Increment(ref failed);
         }
         finally
@@ -158,20 +156,14 @@ app.MapGet("/api/news", async (AppDbContext db, [FromQuery] int? retentionDays) 
         try
         {
             var feedXml = await FetchFeedXmlAsync(feed.Url, feed.Username, feed.Password);
-            Console.WriteLine($"[DEBUG] {feed.Url} — first 500 chars:\n{feedXml[..Math.Min(500, feedXml.Length)]}");
 
             var feedData = FeedReader.ReadFromString(feedXml);
-            Console.WriteLine($"[DEBUG] {feed.Url} — items found: {feedData.Items.Count}");
 
             var feedTitle = sanitizer.Sanitize(feed.Title);
             var items = new List<ArticleEntity>();
 
             foreach (var item in feedData.Items)
-            {
-                var hasEnclosure = item.SpecificItem is Rss20FeedItem rss && rss.Enclosure != null;
-                Console.WriteLine($"[DEBUG]   Item: \"{item.Title}\" — has RSS enclosure: {hasEnclosure}");
-
-                var link = (Uri.TryCreate(item.Link, UriKind.Absolute, out var uri)
+            {                var link = (Uri.TryCreate(item.Link, UriKind.Absolute, out var uri)
                            && (uri.Scheme == "http" || uri.Scheme == "https"))
                     ? uri.ToString()
                     : GenerateLinkId(feedTitle, item.Title, item.PublishingDate ?? now);
@@ -189,9 +181,8 @@ app.MapGet("/api/news", async (AppDbContext db, [FromQuery] int? retentionDays) 
 
             return items;
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            Console.WriteLine($"Error fetching {feed.Url}: {ex.Message}");
             return new List<ArticleEntity>();
         }
     });
@@ -245,9 +236,8 @@ app.MapPost("/api/refresh-feed", async (FeedDto dto, AppDbContext db, [FromQuery
         var feedXml = await FetchFeedXmlAsync(feed.Url, feed.Username, feed.Password);
         feedData = FeedReader.ReadFromString(feedXml);
     }
-    catch (Exception ex)
+    catch (Exception)
     {
-        Console.WriteLine($"Error fetching {dto.Url}: {ex.Message}");
         return Results.BadRequest("Failed to fetch the feed.");
     }
 
@@ -373,21 +363,19 @@ string? GetEnclosureAudioUrl(CodeHollow.FeedReader.FeedItem item)
     }
     else if (item.SpecificItem is CodeHollow.FeedReader.Feeds.AtomFeedItem atomItem)
     {
-        var audioLink = atomItem.Links?.FirstOrDefault(l =>
-            l.Relation == "enclosure" ||
-            (l.LinkType != null && l.LinkType.StartsWith("audio")));
+        var audioLink = atomItem.Links?.FirstOrDefault(l => l.Relation == "enclosure" || (l.LinkType != null && l.LinkType.StartsWith("audio")));
         url = audioLink?.Href;
         type = audioLink?.LinkType;
     }
 
     if (string.IsNullOrEmpty(url)) return null;
 
-    if (type != null && type.StartsWith("video", StringComparison.OrdinalIgnoreCase)) return null;
-    if (type != null && type.StartsWith("audio", StringComparison.OrdinalIgnoreCase)) return url;
-
     var lowerUrl = url.ToLowerInvariant();
-    if (lowerUrl.EndsWith(".mp3") || lowerUrl.EndsWith(".m4a") || lowerUrl.EndsWith(".wav") || lowerUrl.EndsWith(".ogg"))
-        return url;
+    var lowerType = type?.ToLowerInvariant() ?? "";
+
+    if (lowerType.Contains("video") || lowerUrl.Contains(".webm") || lowerUrl.Contains(".mp4")) return null;
+
+    if (lowerType.Contains("audio") || lowerUrl.EndsWith(".mp3") || lowerUrl.EndsWith(".m4a") || lowerUrl.EndsWith(".wav") || lowerUrl.EndsWith(".ogg")) return url;
 
     return null;
 }

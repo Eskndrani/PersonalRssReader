@@ -92,6 +92,11 @@ const translations = {
     feedsFailed: "{failed} feed(s) failed.",
     batchAdded: "{added} added, {failed} failed.",
     retentionLimit: "Keep articles for:",
+    opt1Week: "1 Week",
+    opt2Weeks: "2 Weeks",
+    opt1Month: "1 Month",
+    opt2Months: "2 Months",
+    optForever: "Forever",
     toggleFavorite: "Toggle Favorite",
     copyFeedLink: "Copy Feed Link",
     linkCopied: "Link copied to clipboard!",
@@ -120,23 +125,28 @@ const translations = {
     noMatchFilter: "لا توجد مقالات تطابق عوامل التصفية الحالية.",
     noSubscriptions: "لا توجد اشتراكات بعد.",
     couldNotLoadSubs: "تعذر تحميل الاشتراكات.",
-    feedRefreshed: "تم تحديث الخلاصة.",
-    couldNotRefresh: "تعذر تحديث الخلاصة.",
-    feedRemoved: "تمت إزالة الخلاصة.",
-    couldNotRemove: "تعذرت إزالة الخلاصة.",
+    feedRefreshed: "تم تحديث الاشتراك.",
+    couldNotRefresh: "تعذر تحديث الاشتراك.",
+    feedRemoved: "تمت إزالة الاشتراك.",
+    couldNotRemove: "تعذرت إزالة الاشتراك.",
     couldNotLoadArticles: "تعذر تحميل المقالات.",
-    feedAdded: "تمت إضافة الخلاصة.",
+    feedAdded: "تمت إضافة الاشتراك.",
     adding: "…جار الإضافة",
-    showHideFeed: "إظهار/إخفاء المقالات من هذه الخلاصة",
-    refreshThisFeed: "تحديث هذه الخلاصة",
+    showHideFeed: "إظهار/إخفاء المقالات من هذا الاشتراك",
+    refreshThisFeed: "تحديث هذا الاشتراك",
     unsubscribe: "إلغاء الاشتراك",
     processingBatch: "…جار معالجة الدفعة",
     feedsAdded: "تمت إضافة {added} خلاصة.",
     feedsFailed: "{failed} خلاصات فشلت.",
     batchAdded: "تمت إضافة {added}، {failed} فشلت.",
     retentionLimit: "الاحتفاظ بالمقالات لمدة:",
+    opt1Week: "أسبوع واحد",
+    opt2Weeks: "أسبوعين",
+    opt1Month: "شهر واحد",
+    opt2Months: "شهران",
+    optForever: "للأبد",
     toggleFavorite: "تبديل المفضلة",
-    copyFeedLink: "نسخ رابط الخلاصة",
+    copyFeedLink: "نسخ رابط الاشتراك",
     linkCopied: "تم نسخ الرابط!",
     allFeeds: "الكل",
     favorites: "المفضلة",
@@ -231,7 +241,7 @@ function openModal(article) {
   modalBody.dir = "auto";
   modalBody.innerHTML = article.summary;
 
-  if (article.audioUrl) {
+  if (article.audioUrl && !article.audioUrl.toLowerCase().includes(".webm") && !article.audioUrl.toLowerCase().includes(".mp4")) {
     const audioEl = document.createElement("audio");
     audioEl.controls = true;
     audioEl.src = article.audioUrl;
@@ -365,7 +375,12 @@ async function toggleFavoriteFeed(id) {
   try {
     const res = await fetch(`/api/feeds/${id}/favorite`, { method: "PATCH" });
     if (!res.ok) throw new Error("Failed to toggle favorite");
-    await loadFeeds();
+    const feed = allFeeds.find(function (f) { return f.id === id; });
+    if (feed) {
+      feed.isFavorite = !feed.isFavorite;
+      renderFeedList(allFeeds);
+      renderPage(currentPage);
+    }
   } catch {
     showToast(t("couldNotRemove"), true);
   }
@@ -510,7 +525,7 @@ function renderPage(page) {
     card.appendChild(summary);
 
     const audioLink = a.audioUrl || a.AudioUrl;
-    if (audioLink) {
+    if (audioLink && !audioLink.toLowerCase().includes(".webm") && !audioLink.toLowerCase().includes(".mp4")) {
         const audioEl = document.createElement("audio");
         audioEl.controls = true;
         audioEl.src = audioLink;
