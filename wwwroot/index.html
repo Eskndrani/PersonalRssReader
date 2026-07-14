@@ -34,6 +34,17 @@
         </div>
       </div>
 
+      <div class="sidebar-settings">
+        <label data-i18n="retentionLimit">Keep articles for:</label>
+        <select id="retention-select">
+          <option value="7">1 Week</option>
+          <option value="14">2 Weeks</option>
+          <option value="30" selected>1 Month (Default)</option>
+          <option value="60">2 Months</option>
+          <option value="9999">Forever</option>
+        </select>
+      </div>
+
       <form id="add-feed-form" class="add-feed-form">
         <textarea id="feed-url" rows="3" placeholder="Paste one or more URLs (one per line)" required autocomplete="off"></textarea>
         <div class="add-feed-credentials">
@@ -44,6 +55,16 @@
       </form>
 
       <input type="text" id="feed-search-sidebar" class="feed-search-sidebar" placeholder="Search subscriptions…" autocomplete="off">
+
+      <div class="sidebar-tabs">
+        <button class="tab-btn active" data-tab="all" data-i18n="allFeeds">All</button>
+        <button class="tab-btn" data-tab="fav" data-i18n="favorites">Favorites</button>
+      </div>
+
+      <div class="feed-list-controls">
+        <button id="btn-show-all" class="text-btn" data-i18n="showAll">Show All</button>
+        <button id="btn-hide-all" class="text-btn" data-i18n="hideAll">Hide All</button>
+      </div>
 
       <ul id="feed-list" class="feed-list">
         <li class="feed-item skeleton-feed">

@@ -90,7 +90,15 @@ const translations = {
     processingBatch: "Processing Batch…",
     feedsAdded: "{added} feed(s) added.",
     feedsFailed: "{failed} feed(s) failed.",
-    batchAdded: "{added} added, {failed} failed."
+    batchAdded: "{added} added, {failed} failed.",
+    retentionLimit: "Keep articles for:",
+    toggleFavorite: "Toggle Favorite",
+    copyFeedLink: "Copy Feed Link",
+    linkCopied: "Link copied to clipboard!",
+    allFeeds: "All",
+    favorites: "Favorites",
+    showAll: "Show All",
+    hideAll: "Hide All"
   },
   ar: {
     subscriptions: "الاشتراكات",
@@ -125,7 +133,15 @@ const translations = {
     processingBatch: "…جار معالجة الدفعة",
     feedsAdded: "تمت إضافة {added} خلاصة.",
     feedsFailed: "{failed} خلاصات فشلت.",
-    batchAdded: "تمت إضافة {added}، {failed} فشلت."
+    batchAdded: "تمت إضافة {added}، {failed} فشلت.",
+    retentionLimit: "الاحتفاظ بالمقالات لمدة:",
+    toggleFavorite: "تبديل المفضلة",
+    copyFeedLink: "نسخ رابط الخلاصة",
+    linkCopied: "تم نسخ الرابط!",
+    allFeeds: "الكل",
+    favorites: "المفضلة",
+    showAll: "إظهار الكل",
+    hideAll: "إخفاء الكل"
   }
 };
 
@@ -189,6 +205,7 @@ function toggleLocale() {
 
 let allFeeds = [];
 let allArticles = [];
+let currentFeedTab = "all";
 let excludedFeedTitles = new Set();
 let searchQuery = "";
 let currentPage = 1;
@@ -255,18 +272,39 @@ function renderFeedList(feeds) {
 
   const list = document.getElementById("feed-list");
 
-  if (feeds.length === 0) {
+  var feedsToRender = allFeeds;
+  if (currentFeedTab === "fav") {
+    feedsToRender = allFeeds.filter(function (f) { return f.isFavorite; });
+  }
+
+  if (feedsToRender.length === 0) {
     list.innerHTML =
       '<li class="feed-item" style="color:#9ca3af; padding:1rem 1.25rem;">' + t("noSubscriptions") + '</li>';
     return;
   }
 
-  list.innerHTML = feeds
+  list.innerHTML = feedsToRender
+    .slice()
+    .sort(function (a, b) {
+      if (a.isFavorite !== b.isFavorite) return a.isFavorite ? -1 : 1;
+      return (a.title || "").localeCompare(b.title || "");
+    })
     .map(
       (f) => `
     <li class="feed-item">
       <input type="checkbox" class="feed-toggle" data-id="${escapeAttr(f.id)}" ${excludedFeedTitles.has(f.title) ? "" : "checked"} title="${escapeAttr(t("showHideFeed"))}">
       <span class="feed-title" title="${escapeAttr(f.title)}">${escapeHtml(f.title)}</span>
+      <button class="feed-favorite" data-id="${escapeAttr(f.id)}" title="${escapeAttr(t("toggleFavorite"))}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="${f.isFavorite ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+        </svg>
+      </button>
+      <button class="feed-share" data-url="${escapeAttr(f.url)}" title="${escapeAttr(t("copyFeedLink"))}">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+        </svg>
+      </button>
       <button class="feed-refresh" data-url="${escapeAttr(f.url)}" title="${escapeAttr(t("refreshThisFeed"))}">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="23 4 23 10 17 10"/>
@@ -296,7 +334,7 @@ async function refreshSingleFeed(url, btn) {
   btn.disabled = true;
   btn.classList.add("btn-refreshing");
   try {
-    const res = await fetch("/api/refresh-feed", {
+    const res = await fetch("/api/refresh-feed?retentionDays=" + (localStorage.getItem("retentionDays") || "30"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url }),
@@ -323,6 +361,34 @@ async function deleteFeed(id) {
   }
 }
 
+async function toggleFavoriteFeed(id) {
+  try {
+    const res = await fetch(`/api/feeds/${id}/favorite`, { method: "PATCH" });
+    if (!res.ok) throw new Error("Failed to toggle favorite");
+    await loadFeeds();
+  } catch {
+    showToast(t("couldNotRemove"), true);
+  }
+}
+
+function copyFeedLink(url) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url).then(function () {
+      showToast(t("linkCopied"), false);
+    });
+    return;
+  }
+  var el = document.createElement("textarea");
+  el.value = url;
+  el.style.position = "fixed";
+  el.style.left = "-9999px";
+  document.body.appendChild(el);
+  el.select();
+  document.execCommand("copy");
+  document.body.removeChild(el);
+  showToast(t("linkCopied"), false);
+}
+
 async function loadNews() {
   const container = document.getElementById("articles-container");
   const emptyState = document.getElementById("empty-state");
@@ -341,7 +407,7 @@ async function loadNews() {
   container.innerHTML = skeletonHtml;
 
   try {
-    const res = await fetch("/api/news");
+    const res = await fetch("/api/news?retentionDays=" + (localStorage.getItem("retentionDays") || "30"));
     if (!res.ok) throw new Error("Failed to fetch news");
     allArticles = await res.json();
     renderPage(1);
@@ -357,6 +423,8 @@ function getFilteredArticles() {
   const q = searchQuery.trim().toLowerCase();
   return allArticles.filter((a) => {
     if (excludedFeedTitles.has(a.feedTitle)) return false;
+    var favTitles = new Set(allFeeds.filter(function (f) { return f.isFavorite; }).map(function (f) { return f.title; }));
+    if (currentFeedTab === "fav" && !favTitles.has(a.feedTitle)) return false;
     if (!q) return true;
     const titleText = (a.title ?? "").toLowerCase();
     const summaryText = stripTags(a.summary ?? "").toLowerCase();
@@ -495,9 +563,9 @@ function setupAddFeedForm() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ urls: urls, username: username, password: password }),
-      });
+  });
 
-      if (!res.ok) {
+  if (!res.ok) {
         const text = await res.text();
         throw new Error(text || "Batch import failed");
       }
@@ -530,10 +598,47 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
   document.getElementById("lang-toggle").addEventListener("click", toggleLocale);
 
+  var savedRetention = localStorage.getItem("retentionDays");
+  if (savedRetention) {
+    document.getElementById("retention-select").value = savedRetention;
+  } else {
+    localStorage.setItem("retentionDays", "30");
+  }
+
+  document.getElementById("retention-select").addEventListener("change", function () {
+    localStorage.setItem("retentionDays", this.value);
+  });
+
   loadFeeds();
   setupAddFeedForm();
 
   document.getElementById("feed-search-sidebar").addEventListener("input", filterSidebarFeeds);
+
+  document.querySelectorAll(".tab-btn").forEach(function (btn) {
+    btn.addEventListener("click", function (e) {
+      document.querySelectorAll(".tab-btn").forEach(function (b) { b.classList.remove("active"); });
+      e.target.classList.add("active");
+      currentFeedTab = e.target.dataset.tab;
+      renderFeedList(allFeeds);
+      renderPage(1);
+    });
+  });
+
+  document.getElementById("btn-show-all").addEventListener("click", function () {
+    excludedFeedTitles.clear();
+    renderFeedList(allFeeds);
+    renderPage(1);
+  });
+
+  document.getElementById("btn-hide-all").addEventListener("click", function () {
+    var visibleFeeds = allFeeds;
+    if (currentFeedTab === "fav") {
+      visibleFeeds = allFeeds.filter(function (f) { return f.isFavorite; });
+    }
+    visibleFeeds.forEach(function (f) { excludedFeedTitles.add(f.title); });
+    renderFeedList(allFeeds);
+    renderPage(1);
+  });
 
   document.getElementById("refresh-btn").addEventListener("click", () => {
     loadNews();
@@ -578,6 +683,16 @@ document.addEventListener("DOMContentLoaded", () => {
     const deleteBtn = e.target.closest(".feed-delete");
     if (deleteBtn) {
       deleteFeed(deleteBtn.dataset.id);
+      return;
+    }
+    const favoriteBtn = e.target.closest(".feed-favorite");
+    if (favoriteBtn) {
+      toggleFavoriteFeed(favoriteBtn.dataset.id);
+      return;
+    }
+    const shareBtn = e.target.closest(".feed-share");
+    if (shareBtn) {
+      copyFeedLink(shareBtn.dataset.url);
       return;
     }
   });

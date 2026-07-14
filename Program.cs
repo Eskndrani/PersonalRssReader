@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using CodeHollow.FeedReader;
 using CodeHollow.FeedReader.Feeds;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Ganss.Xss;
 using System.Net;
@@ -116,6 +117,22 @@ app.MapPost("/api/feeds/batch", async (BatchFeedDto dto) =>
     return Results.Ok(new { Added = added, Failed = failed });
 });
 
+app.MapPatch("/api/feeds/{id}/favorite", async (string id) =>
+{
+    var feeds = await ReadFeedsAsync();
+    var feed = feeds.FirstOrDefault(f => f.Id == id);
+
+    if (feed is null)
+        return Results.NotFound();
+
+    var updatedFeed = feed with { IsFavorite = !feed.IsFavorite };
+    var index = feeds.IndexOf(feed);
+    feeds[index] = updatedFeed;
+    await WriteFeedsAsync(feeds);
+
+    return Results.Ok(updatedFeed);
+});
+
 app.MapDelete("/api/feeds/{id}", async (string id) =>
 {
     var feeds = await ReadFeedsAsync();
@@ -130,7 +147,7 @@ app.MapDelete("/api/feeds/{id}", async (string id) =>
     return Results.NoContent();
 });
 
-app.MapGet("/api/news", async (AppDbContext db) =>
+app.MapGet("/api/news", async (AppDbContext db, [FromQuery] int? retentionDays) =>
 {
     var feeds = await ReadFeedsAsync();
     var sanitizer = new HtmlSanitizer();
@@ -197,7 +214,7 @@ app.MapGet("/api/news", async (AppDbContext db) =>
         }
     }
 
-    var cutoff = DateTime.UtcNow.AddDays(-14);
+    var cutoff = DateTime.UtcNow.AddDays(-(retentionDays ?? 30));
     var oldArticles = await db.Articles.Where(a => a.PublishDate < cutoff).ToListAsync();
     if (oldArticles.Count > 0)
     {
@@ -213,7 +230,7 @@ app.MapGet("/api/news", async (AppDbContext db) =>
     return Results.Ok(articles);
 });
 
-app.MapPost("/api/refresh-feed", async (FeedDto dto, AppDbContext db) =>
+app.MapPost("/api/refresh-feed", async (FeedDto dto, AppDbContext db, [FromQuery] int? retentionDays) =>
 {
     var feeds = await ReadFeedsAsync();
     var feed = feeds.FirstOrDefault(f => f.Url == dto.Url);
@@ -267,7 +284,7 @@ app.MapPost("/api/refresh-feed", async (FeedDto dto, AppDbContext db) =>
         await db.SaveChangesAsync();
     }
 
-    var cutoff = DateTime.UtcNow.AddDays(-14);
+    var cutoff = DateTime.UtcNow.AddDays(-(retentionDays ?? 30));
     var oldArticles = await db.Articles.Where(a => a.PublishDate < cutoff).ToListAsync();
     if (oldArticles.Count > 0)
     {
@@ -346,25 +363,31 @@ async Task<string> FetchFeedXmlAsync(string url, string? username, string? passw
 
 string? GetEnclosureAudioUrl(CodeHollow.FeedReader.FeedItem item)
 {
-    if (item.SpecificItem is CodeHollow.FeedReader.Feeds.Rss20FeedItem rssItem)
+    string? url = null;
+    string? type = null;
+
+    if (item.SpecificItem is CodeHollow.FeedReader.Feeds.Rss20FeedItem rssItem && rssItem.Enclosure != null)
     {
-        if (rssItem.Enclosure != null && rssItem.Enclosure.MediaType != null && rssItem.Enclosure.MediaType.StartsWith("audio"))
-            return rssItem.Enclosure.Url;
-
-        var mediaContent = rssItem.Element.Elements().FirstOrDefault(e => e.Name.LocalName == "content");
-        if (mediaContent != null && mediaContent.Attribute("medium")?.Value == "audio")
-            return mediaContent.Attribute("url")?.Value;
-
-        return rssItem.Enclosure?.Url;
+        url = rssItem.Enclosure.Url;
+        type = rssItem.Enclosure.MediaType;
     }
     else if (item.SpecificItem is CodeHollow.FeedReader.Feeds.AtomFeedItem atomItem)
     {
         var audioLink = atomItem.Links?.FirstOrDefault(l =>
             l.Relation == "enclosure" ||
             (l.LinkType != null && l.LinkType.StartsWith("audio")));
-
-        return audioLink?.Href;
+        url = audioLink?.Href;
+        type = audioLink?.LinkType;
     }
+
+    if (string.IsNullOrEmpty(url)) return null;
+
+    if (type != null && type.StartsWith("video", StringComparison.OrdinalIgnoreCase)) return null;
+    if (type != null && type.StartsWith("audio", StringComparison.OrdinalIgnoreCase)) return url;
+
+    var lowerUrl = url.ToLowerInvariant();
+    if (lowerUrl.EndsWith(".mp3") || lowerUrl.EndsWith(".m4a") || lowerUrl.EndsWith(".wav") || lowerUrl.EndsWith(".ogg"))
+        return url;
 
     return null;
 }
@@ -406,7 +429,7 @@ class AppDbContext : DbContext
     }
 }
 
-record Feed(string Id, string Url, string Title, string? Username = null, string? Password = null);
+record Feed(string Id, string Url, string Title, string? Username = null, string? Password = null, bool IsFavorite = false);
 record FeedDto(string Url, string? Username = null, string? Password = null);
 record BatchFeedDto(string[] Urls, string? Username = null, string? Password = null);
 record Article(string FeedTitle, string Title, string Link, DateTime PublishDate, string Summary, string? AudioUrl = null);
