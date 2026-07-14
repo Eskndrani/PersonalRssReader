@@ -206,7 +206,7 @@ app.MapGet("/api/news", async (AppDbContext db, [FromQuery] int? retentionDays) 
     }
 
     var cutoff = DateTime.UtcNow.AddDays(-(retentionDays ?? 30));
-    var oldArticles = await db.Articles.Where(a => a.PublishDate < cutoff).ToListAsync();
+    var oldArticles = await db.Articles.Where(a => a.PublishDate < cutoff && !a.IsBookmarked).ToListAsync();
     if (oldArticles.Count > 0)
     {
         db.Articles.RemoveRange(oldArticles);
@@ -215,10 +215,32 @@ app.MapGet("/api/news", async (AppDbContext db, [FromQuery] int? retentionDays) 
 
     var articles = await db.Articles
         .OrderByDescending(a => a.PublishDate)
-        .Select(a => new Article(a.FeedTitle, a.Title, a.Link, a.PublishDate, a.Summary, a.AudioUrl))
+        .Select(a => new Article(a.Id, a.FeedTitle, a.Title, a.Link, a.PublishDate, a.Summary, a.AudioUrl, a.IsBookmarked, a.IsRead))
         .ToListAsync();
 
     return Results.Ok(articles);
+});
+
+app.MapPatch("/api/news/{id}/bookmark", async (int id, AppDbContext db) =>
+{
+    var article = await db.Articles.FindAsync(id);
+    if (article is null) return Results.NotFound();
+
+    article.IsBookmarked = !article.IsBookmarked;
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new { id = article.Id, isBookmarked = article.IsBookmarked });
+});
+
+app.MapPatch("/api/news/{id}/read", async (int id, AppDbContext db) =>
+{
+    var article = await db.Articles.FindAsync(id);
+    if (article is null) return Results.NotFound();
+
+    article.IsRead = true;
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new { id = article.Id, isRead = article.IsRead });
 });
 
 app.MapPost("/api/refresh-feed", async (FeedDto dto, AppDbContext db, [FromQuery] int? retentionDays) =>
@@ -275,7 +297,7 @@ app.MapPost("/api/refresh-feed", async (FeedDto dto, AppDbContext db, [FromQuery
     }
 
     var cutoff = DateTime.UtcNow.AddDays(-(retentionDays ?? 30));
-    var oldArticles = await db.Articles.Where(a => a.PublishDate < cutoff).ToListAsync();
+    var oldArticles = await db.Articles.Where(a => a.PublishDate < cutoff && !a.IsBookmarked).ToListAsync();
     if (oldArticles.Count > 0)
     {
         db.Articles.RemoveRange(oldArticles);
@@ -398,6 +420,8 @@ class ArticleEntity
     public DateTime PublishDate { get; set; }
     public string Link { get; set; } = "";
     public string? AudioUrl { get; set; }
+    public bool IsBookmarked { get; set; } = false;
+    public bool IsRead { get; set; } = false;
 }
 
 class AppDbContext : DbContext
@@ -420,4 +444,4 @@ class AppDbContext : DbContext
 record Feed(string Id, string Url, string Title, string? Username = null, string? Password = null, bool IsFavorite = false);
 record FeedDto(string Url, string? Username = null, string? Password = null);
 record BatchFeedDto(string[] Urls, string? Username = null, string? Password = null);
-record Article(string FeedTitle, string Title, string Link, DateTime PublishDate, string Summary, string? AudioUrl = null);
+record Article(int Id, string FeedTitle, string Title, string Link, DateTime PublishDate, string Summary, string? AudioUrl = null, bool IsBookmarked = false, bool IsRead = false);

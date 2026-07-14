@@ -103,7 +103,9 @@ const translations = {
     allFeeds: "All",
     favorites: "Favorites",
     showAll: "Show All",
-    hideAll: "Hide All"
+    hideAll: "Hide All",
+    bookmarkArticle: "Bookmark article",
+    articleBookmarked: "Article bookmarked"
   },
   ar: {
     subscriptions: "الاشتراكات",
@@ -151,7 +153,9 @@ const translations = {
     allFeeds: "الكل",
     favorites: "المفضلة",
     showAll: "إظهار الكل",
-    hideAll: "إخفاء الكل"
+    hideAll: "إخفاء الكل",
+    bookmarkArticle: "حفظ المقال",
+    articleBookmarked: "تم حفظ المقال"
   }
 };
 
@@ -549,6 +553,8 @@ function renderPage(page) {
   pageArticles.forEach((a) => {
     const card = document.createElement("article");
     card.className = "article-card";
+    if (a.isBookmarked) card.classList.add("article-bookmarked");
+    if (a.isRead) card.classList.add("article-read");
 
     const source = document.createElement("div");
     source.className = "article-feed-source";
@@ -577,11 +583,39 @@ function renderPage(page) {
     summary.dir = "auto";
     summary.innerHTML = a.summary;
 
-    const readMore = document.createElement("button");
+    var articleActions = document.createElement("div");
+    articleActions.className = "article-actions";
+
+    var bookmarkBtn = document.createElement("button");
+    bookmarkBtn.className = "btn btn-icon";
+    bookmarkBtn.setAttribute("aria-label", t("bookmarkArticle"));
+    bookmarkBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="' + (a.isBookmarked ? 'currentColor' : 'none') + '" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>';
+    bookmarkBtn.addEventListener("click", function () {
+      fetch("/api/news/" + a.id + "/bookmark", { method: "PATCH" })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          a.isBookmarked = data.isBookmarked;
+          bookmarkBtn.querySelector("svg").setAttribute("fill", data.isBookmarked ? "currentColor" : "none");
+          if (data.isBookmarked) {
+            card.classList.add("article-bookmarked");
+          } else {
+            card.classList.remove("article-bookmarked");
+          }
+          showToast(t("articleBookmarked"), false);
+        });
+    });
+
+    var readMore = document.createElement("button");
     readMore.className = "btn btn-secondary";
     readMore.textContent = t("readMore");
-    readMore.style.marginTop = "0.5rem";
-    readMore.addEventListener("click", () => openModal(a));
+    readMore.addEventListener("click", function () {
+      openModal(a);
+      fetch("/api/news/" + a.id + "/read", { method: "PATCH" });
+      if (!a.isRead) {
+        a.isRead = true;
+        card.classList.add("article-read");
+      }
+    });
 
     card.appendChild(source);
     card.appendChild(title);
@@ -593,7 +627,9 @@ function renderPage(page) {
         card.appendChild(buildAudioPlayer(audioLink));
     }
 
-    card.appendChild(readMore);
+    articleActions.appendChild(bookmarkBtn);
+    articleActions.appendChild(readMore);
+    card.appendChild(articleActions);
 
     fragment.appendChild(card);
   });
