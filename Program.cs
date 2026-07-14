@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Ganss.Xss;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Xml.Linq;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -303,7 +304,23 @@ async Task<List<Feed>> ReadFeedsAsync()
         return [];
 
     await using var stream = File.OpenRead("feeds.json");
-    return await JsonSerializer.DeserializeAsync<List<Feed>>(stream) ?? [];
+    var feeds = await JsonSerializer.DeserializeAsync<List<Feed>>(stream) ?? [];
+
+    var cleaned = false;
+    for (var i = 0; i < feeds.Count; i++)
+    {
+        var f = feeds[i];
+        if (f.Url != f.Url.Trim())
+        {
+            feeds[i] = f with { Url = f.Url.Trim() };
+            cleaned = true;
+        }
+    }
+
+    if (cleaned)
+        await WriteFeedsAsync(feeds);
+
+    return feeds;
 }
 
 async Task WriteFeedsAsync(List<Feed> feeds)
@@ -334,7 +351,7 @@ string? GetEnclosureAudioUrl(CodeHollow.FeedReader.FeedItem item)
         if (rssItem.Enclosure != null && rssItem.Enclosure.MediaType != null && rssItem.Enclosure.MediaType.StartsWith("audio"))
             return rssItem.Enclosure.Url;
 
-        var mediaContent = rssItem.Element.Element("media:content");
+        var mediaContent = rssItem.Element.Elements().FirstOrDefault(e => e.Name.LocalName == "content");
         if (mediaContent != null && mediaContent.Attribute("medium")?.Value == "audio")
             return mediaContent.Attribute("url")?.Value;
 

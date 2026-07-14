@@ -2,16 +2,29 @@
   {
     "Id": "af2b024e-a951-4f69-a60f-153a25d60092",
     "Url": "https://gist.githubusercontent.com/Eskndrani/c9017ce7154110d2811a0c8408e9b910/raw/52ef135f4b50ab6655f1f4956be27cf903f105f1/gistfile1.txt",
-    "Title": "SmarterASP Audio Test Feed"
+    "Title": "SmarterASP Audio Test Feed",
+    "Username": null,
+    "Password": null
   },
   {
     "Id": "93139f62-6b92-481d-9095-7822d23c4393",
     "Url": "https://feed.syntax.fm/rss",
-    "Title": "Syntax - Tasty Web Development Treats"
+    "Title": "Syntax - Tasty Web Development Treats",
+    "Username": null,
+    "Password": null
   },
   {
     "Id": "276558de-d453-4e95-9e53-ddb5a56513af",
     "Url": "https://podcasts.files.bbci.co.uk/p02nq0gn.rss",
-    "Title": "Global News Podcast"
+    "Title": "Global News Podcast",
+    "Username": null,
+    "Password": null
+  },
+  {
+    "Id": "7ec25d9f-d39b-4cca-8e69-f73a1ae779cb",
+    "Url": "https://devblogs.microsoft.com/dotnet/feed/",
+    "Title": ".NET Blog",
+    "Username": null,
+    "Password": null
   }
 ]

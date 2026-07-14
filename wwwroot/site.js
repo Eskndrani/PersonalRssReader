@@ -477,7 +477,7 @@ function setupAddFeedForm() {
     const raw = textarea.value.trim();
     if (!raw) return;
 
-    const urls = raw.split("\n")
+    const urls = raw.split(/\r?\n/)
       .map(function (line) { return line.trim(); })
       .filter(function (line) { return line.length > 0; });
 
