@@ -47,15 +47,15 @@
       </div>
 
       <form id="add-feed-form" class="add-feed-form">
-        <textarea id="feed-url" rows="3" placeholder="Paste one or more URLs (one per line)" required autocomplete="off"></textarea>
+        <textarea id="feed-url" rows="3" placeholder="أدخل رابطاً أو أكثر (رابط في كل سطر)..." required autocomplete="off"></textarea>
         <div class="add-feed-credentials">
-          <input type="text" id="feed-username" placeholder="Username (optional)" autocomplete="off">
-          <input type="password" id="feed-password" placeholder="Password (optional)" autocomplete="off">
+          <input type="text" id="feed-username" placeholder="اسم المستخدم (اختياري)" autocomplete="off">
+          <input type="password" id="feed-password" placeholder="كلمة المرور (اختياري)" autocomplete="off">
         </div>
         <button type="submit" class="btn btn-primary add-feed-btn" data-i18n="add">Add</button>
       </form>
 
-      <input type="text" id="feed-search-sidebar" class="feed-search-sidebar" placeholder="Search subscriptions…" autocomplete="off">
+      <input type="text" id="feed-search-sidebar" class="feed-search-sidebar" placeholder="البحث في الاشتراكات..." autocomplete="off">
 
       <div class="sidebar-tabs">
         <button class="tab-btn active" data-tab="all" data-i18n="allFeeds">All</button>
@@ -179,6 +179,15 @@
     </div>
   </div>
 
+  <div id="deep-summary-modal" class="modal" style="display: none;">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <button class="modal-close" data-i18n-title="close" title="Close">&times;</button>
+      <h2 data-i18n="deepSummaryTitle">✨ AI Deep Summary</h2>
+      <div id="deep-summary-body"></div>
+    </div>
+  </div>
+
   <div id="chat-widget" class="chat-widget" style="display: none;">
     <button id="btn-chat-toggle" class="chat-toggle-btn" title="Chat with your feeds">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -198,6 +207,7 @@
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="/site.js"></script>
 </body>
 </html>

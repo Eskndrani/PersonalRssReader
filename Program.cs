@@ -39,7 +39,21 @@ builder.Services.AddScoped<FeedArticleService>();
 builder.Services.AddScoped<IAiService, AiService>();
 builder.Services.AddHostedService<FeedRefreshWorker>();
 
+builder.Services.AddHttpClient("AiClient", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(60);
+});
+
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+
 var app = builder.Build();
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
 
 using (var scope = app.Services.CreateScope())
 {
@@ -377,6 +391,34 @@ app.MapPost("/api/chat", async (ChatRequest request, IAiService ai, HttpContext 
     var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
     var response = await ai.AskQuestionAsync(request.Message, userId);
     return Results.Ok(new { response });
+}).RequireAuthorization();
+
+app.MapGet("/api/ai/summary", async (IAiService ai, AppDbContext db, HttpContext http) =>
+{
+    var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+    var today = DateTime.UtcNow.Date;
+    var articles = await db.Articles
+        .Where(a => a.UserId == userId && !a.IsRead && a.PublishDate >= today)
+        .OrderByDescending(a => a.PublishDate)
+        .Take(15)
+        .ToListAsync();
+
+    var summary = await ai.GenerateDailySummaryAsync(articles);
+    return Results.Ok(new { summary });
+}).RequireAuthorization();
+
+app.MapPost("/api/ai/chat", async (ChatRequest request, IAiService ai, HttpContext http) =>
+{
+    var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+    var response = await ai.AskQuestionAsync(request.Message, userId);
+    return Results.Ok(new { response });
+}).RequireAuthorization();
+
+app.MapGet("/api/ai/summary/article/{id:int}", async (int id, IAiService ai, HttpContext http) =>
+{
+    var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+    var summary = await ai.SummarizeArticleAsync(id, userId);
+    return Results.Ok(new { summary });
 }).RequireAuthorization();
 
 app.MapGet("/api/hacker", () =>

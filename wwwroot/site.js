@@ -121,7 +121,9 @@ const translations = {
     dailyBriefing: "Daily Briefing",
     dismiss: "Dismiss",
     chatTitle: "Chat with your feeds",
-    chatPlaceholder: "Ask about your news..."
+    chatPlaceholder: "Ask about your news...",
+    deepSummary: "Deep Summary",
+    deepSummaryTitle: "AI Deep Summary"
   },
   ar: {
     subscriptions: "الاشتراكات",
@@ -187,7 +189,9 @@ const translations = {
     dailyBriefing: "الموجز اليومي",
     dismiss: "إغلاق",
     chatTitle: "تحدث مع مصادر الأخبار",
-    chatPlaceholder: "اسأل عن أخبارك..."
+    chatPlaceholder: "اسأل عن أخبارك...",
+    deepSummary: "ملخص ذكي",
+    deepSummaryTitle: "AI Deep Summary"
   }
 };
 
@@ -677,33 +681,31 @@ function renderPage(page) {
 
     articleActions.appendChild(bookmarkBtn);
 
-    var aiBtn = document.createElement("button");
-    aiBtn.className = "btn btn-secondary";
-    aiBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:0.25rem"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>' + t("aiSummary");
-    aiBtn.addEventListener("click", function () {
-      aiBtn.disabled = true;
-      aiBtn.classList.add("btn-refreshing");
-      aiBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:0.25rem"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>' + t("generatingSummary");
-      var textContent = stripTags(a.summary);
-      fetch("/api/news/summarize", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ link: a.link, textContent: textContent })
-      })
+    var deepBtn = document.createElement("button");
+    deepBtn.className = "btn btn-secondary";
+    deepBtn.innerHTML = t("deepSummary");
+    deepBtn.addEventListener("click", function () {
+      deepBtn.disabled = true;
+      deepBtn.classList.add("btn-refreshing");
+      var modal = document.getElementById("deep-summary-modal");
+      var body = document.getElementById("deep-summary-body");
+      modal.style.display = "flex";
+      body.innerHTML = '<p style="color:var(--color-faint)">' + t("generatingSummary") + '</p>';
+
+      fetch("/api/ai/summary/article/" + a.id, { credentials: "include" })
         .then(function (res) { return res.json(); })
         .then(function (data) {
-          var box = document.createElement("div");
-          box.className = "ai-summary-box";
-          box.innerHTML = data.summary;
-          contentWrapper.insertBefore(box, articleActions);
+          body.innerHTML = marked.parse(data.summary);
+        })
+        .catch(function () {
+          body.innerHTML = '<p style="color:var(--color-error)">Failed to generate summary.</p>';
         })
         .finally(function () {
-          aiBtn.disabled = false;
-          aiBtn.classList.remove("btn-refreshing");
-          aiBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:0.25rem"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>' + t("aiSummary");
+          deepBtn.disabled = false;
+          deepBtn.classList.remove("btn-refreshing");
         });
     });
-    articleActions.appendChild(aiBtn);
+    articleActions.appendChild(deepBtn);
 
     articleActions.appendChild(readMore);
     contentWrapper.appendChild(articleActions);
@@ -833,7 +835,7 @@ function setupBriefing() {
       var res = await fetch("/api/news/daily-briefing", { credentials: "include" });
       if (!res.ok) throw new Error("Failed to generate briefing");
       var data = await res.json();
-      content.textContent = data.summary;
+      content.innerHTML = marked.parse(data.summary);
     } catch (err) {
       content.textContent = "Could not generate briefing. Please try again.";
     } finally {
@@ -1116,3 +1118,12 @@ function escapeAttr(str) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
 }
+
+document.addEventListener("DOMContentLoaded", function () {
+  var closeBtns = document.querySelectorAll("#deep-summary-modal .modal-close, #deep-summary-modal .modal-backdrop");
+  closeBtns.forEach(function (el) {
+    el.addEventListener("click", function () {
+      document.getElementById("deep-summary-modal").style.display = "none";
+    });
+  });
+});
