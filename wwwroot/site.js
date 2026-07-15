@@ -394,6 +394,14 @@ async function loadFeeds() {
   }
 }
 
+function getFaviconHtml(feed) {
+  var color = getColorForFeed(feed.title || feed.name || "");
+  var url = feed.faviconUrl || (feed.url ? "https://www.google.com/s2/favicons?domain=" + new URL(feed.url).hostname + "&sz=64" : "");
+  return '<span class="icon-wrapper" style="width:16px;height:16px;border-radius:50%;display:inline-block;overflow:hidden;background-color:' + color + ';vertical-align:middle;margin-right:6px;flex-shrink:0;">' +
+    '<img src="' + escapeAttr(url) + '" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display=\'none\'" alt="">' +
+    '</span>';
+}
+
 function renderFeedList(feeds) {
   allFeeds = feeds;
   const currentTitles = new Set(feeds.map((f) => f.title));
@@ -422,31 +430,36 @@ function renderFeedList(feeds) {
     })
     .map(
       (f) => `
-    <li class="feed-item">
-      <input type="checkbox" class="feed-toggle" data-id="${escapeAttr(f.id)}" ${excludedFeedTitles.has(f.title) ? "" : "checked"} title="${escapeAttr(t("showHideFeed"))}">
-      <label class="feed-label">
-        <span class="feed-name" title="${escapeAttr(f.title)}">${escapeHtml(f.title)}</span>
-        <span class="feed-count">(${f.articleCount || 0})</span>
-      </label>
-      <button class="feed-favorite" data-id="${escapeAttr(f.id)}" title="${escapeAttr(t("toggleFavorite"))}">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="${f.isFavorite ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-        </svg>
-      </button>
-      <button class="feed-share" data-url="${escapeAttr(f.url)}" title="${escapeAttr(t("copyFeedLink"))}">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-        </svg>
-      </button>
-      <button class="feed-refresh" data-url="${escapeAttr(f.url)}" title="${escapeAttr(t("refreshThisFeed"))}">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="23 4 23 10 17 10"/>
-          <polyline points="1 20 1 14 7 14"/>
-          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-        </svg>
-      </button>
-      <button class="feed-delete" data-id="${escapeAttr(f.id)}" title="${escapeAttr(t("unsubscribe"))}">&times;</button>
+    <li class="feed-item feed-item-card">
+      <div class="feed-item-info">
+        <input type="checkbox" class="feed-toggle" data-id="${escapeAttr(f.id)}" ${excludedFeedTitles.has(f.title) ? "" : "checked"} title="${escapeAttr(t("showHideFeed"))}">
+        ${getFaviconHtml(f)}
+        <label class="feed-label">
+          <span class="feed-name" title="${escapeAttr(f.title)}">${escapeHtml(f.title)}</span>
+          <span class="feed-count">(${f.articleCount || 0})</span>
+        </label>
+      </div>
+      <div class="feed-item-options">
+        <button class="feed-favorite" data-id="${escapeAttr(f.id)}" title="${escapeAttr(t("toggleFavorite"))}">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="${f.isFavorite ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+          </svg>
+        </button>
+        <button class="feed-share" data-url="${escapeAttr(f.url)}" title="${escapeAttr(t("copyFeedLink"))}">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+          </svg>
+        </button>
+        <button class="feed-refresh" data-url="${escapeAttr(f.url)}" title="${escapeAttr(t("refreshThisFeed"))}">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"/>
+            <polyline points="1 20 1 14 7 14"/>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+          </svg>
+        </button>
+        <button class="feed-delete" data-id="${escapeAttr(f.id)}" title="${escapeAttr(t("unsubscribe"))}">&times;</button>
+      </div>
     </li>`
     )
     .join("");
@@ -626,6 +639,12 @@ function renderPage(page) {
 
     const source = document.createElement("div");
     source.className = "article-feed-source";
+
+    var feed = allFeeds.find(function (f) { return f.title === a.feedTitle; });
+    if (feed) {
+      source.innerHTML += getFaviconHtml(feed);
+    }
+
     const tag = document.createElement("span");
     tag.className = "feed-tag";
     tag.innerHTML = a.feedTitle;
@@ -711,7 +730,7 @@ function renderPage(page) {
       modal.style.display = "flex";
       body.innerHTML = '<p style="color:var(--color-faint)">' + t("generatingSummary") + '</p>';
 
-      fetch("/api/ai/summary/article/" + a.id, { credentials: "include" })
+      fetch("/api/ai/summary/article/" + a.id + "?lang=" + currentLocale, { credentials: "include" })
         .then(function (res) { return res.json(); })
         .then(function (data) {
           body.innerHTML = marked.parse(data.summary);
@@ -732,7 +751,8 @@ function renderPage(page) {
     card.appendChild(contentWrapper);
 
     const imgUrl = a.imageUrl || a.ImageUrl || a.imageurl;
-    if (imgUrl) {
+    var summaryHasImage = /<img[^>]+>/i.test(a.summary);
+    if (imgUrl && !summaryHasImage) {
       const img = document.createElement("img");
       img.className = "article-thumbnail";
       img.src = imgUrl;
@@ -815,8 +835,11 @@ async function checkAuth() {
   try {
     var res = await fetch("/api/auth/me", { credentials: "include" });
     if (res.ok) {
+      var data = await res.json();
+      document.getElementById("user-email").textContent = data.email || "";
       document.getElementById("auth-modal").style.display = "none";
       document.getElementById("btn-logout").style.display = "";
+      document.getElementById("user-email").textContent = data.email || "";
       setupAuthorized();
       return;
     }
@@ -825,6 +848,7 @@ async function checkAuth() {
   }
   document.getElementById("auth-modal").style.display = "flex";
   document.getElementById("btn-logout").style.display = "none";
+  document.getElementById("user-email").textContent = "";
 }
 
 function setupAuthorized() {
@@ -851,7 +875,7 @@ function setupBriefing() {
     content.textContent = "Generating your briefing...";
 
     try {
-      var res = await fetch("/api/news/daily-briefing", { credentials: "include" });
+      var res = await fetch("/api/news/daily-briefing?lang=" + currentLocale, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to generate briefing");
       var data = await res.json();
       content.innerHTML = marked.parse(data.summary);
@@ -901,7 +925,7 @@ function setupChat() {
     input.value = "";
 
     try {
-      var res = await fetch("/api/chat", {
+      var res = await fetch("/api/chat?lang=" + currentLocale, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: msg }),

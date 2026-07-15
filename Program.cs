@@ -94,6 +94,7 @@ app.MapGet("/api/feeds", async (AppDbContext db, HttpContext http) =>
             f.Username,
             f.Password,
             f.IsFavorite,
+            f.FaviconUrl,
             ArticleCount = db.Articles.Count(a => a.UserId == userId && a.FeedTitle == f.Title)
         })
         .ToListAsync();
@@ -126,7 +127,8 @@ app.MapPost("/api/feeds", async (
         Title = title,
         Username = dto.Username,
         Password = dto.Password,
-        UserId = userId
+        UserId = userId,
+        FaviconUrl = GetFaviconUrl(dto.Url)
     };
     db.Feeds.Add(feed);
     await db.SaveChangesAsync();
@@ -168,7 +170,8 @@ app.MapPost("/api/feeds/batch", async (
                 Title = title,
                 Username = dto.Username,
                 Password = dto.Password,
-                UserId = userId
+                UserId = userId,
+                FaviconUrl = GetFaviconUrl(url)
             });
             Interlocked.Increment(ref added);
         }
@@ -384,25 +387,12 @@ app.MapPatch("/api/news/{id}/read", async (int id, AppDbContext db, HttpContext 
     return Results.Ok(new { id = article.Id, isRead = article.IsRead });
 }).RequireAuthorization();
 
-app.MapGet("/api/news/daily-briefing", async (
-    AppDbContext db, IAiService ai, HttpContext http) =>
+app.MapPost("/api/chat", async (
+    ChatRequest request, IAiService ai, HttpContext http,
+    [FromQuery] string lang = "en") =>
 {
     var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
-    var today = DateTime.UtcNow.Date;
-    var articles = await db.Articles
-        .Where(a => a.UserId == userId && !a.IsRead && a.PublishDate >= today)
-        .OrderByDescending(a => a.PublishDate)
-        .Take(10)
-        .ToListAsync();
-
-    var summary = await ai.GenerateDailySummaryAsync(articles);
-    return Results.Ok(new { summary });
-}).RequireAuthorization();
-
-app.MapPost("/api/chat", async (ChatRequest request, IAiService ai, HttpContext http) =>
-{
-    var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
-    var response = await ai.AskQuestionAsync(request.Message, userId);
+    var response = await ai.AskQuestionAsync(request.Message, userId, lang);
     return Results.Ok(new { response });
 }).RequireAuthorization();
 
@@ -474,6 +464,12 @@ app.MapGet("/api/hacker", () =>
     return Results.Text(xml, "application/xml");
 });
 
+static string? GetFaviconUrl(string feedUrl)
+{
+    if (!Uri.TryCreate(feedUrl, UriKind.Absolute, out var uri)) return null;
+    return $"https://www.google.com/s2/favicons?domain={uri.Host}&sz=64";
+}
+
 app.Run();
 
 public class ArticleEntity
@@ -500,6 +496,7 @@ public class FeedSubscription
     public string? Password { get; set; }
     public bool IsFavorite { get; set; } = false;
     public string UserId { get; set; } = "";
+    public string? FaviconUrl { get; set; }
 }
 
 public class AppDbContext : IdentityDbContext<IdentityUser>
