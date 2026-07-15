@@ -36,6 +36,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 });
 
 builder.Services.AddScoped<FeedArticleService>();
+builder.Services.AddHostedService<FeedRefreshWorker>();
 
 var app = builder.Build();
 
