@@ -110,7 +110,14 @@ const translations = {
     aiSummary: "AI Summary",
     generatingSummary: "Generating...",
     allArticles: "All News",
-    bookmarkedArticles: "Bookmarks"
+    bookmarkedArticles: "Bookmarks",
+    loginTitle: "Log In",
+    registerTitle: "Create Account",
+    noAccount: "No account?",
+    signUpHere: "Sign up here",
+    haveAccount: "Already have an account?",
+    logInHere: "Log in here",
+    logout: "Logout"
   },
   ar: {
     subscriptions: "الاشتراكات",
@@ -165,7 +172,14 @@ const translations = {
     aiSummary: "ملخص AI",
     generatingSummary: "...جار التوليد",
     allArticles: "كل الأخبار",
-    bookmarkedArticles: "المحفوظات"
+    bookmarkedArticles: "المحفوظات",
+    loginTitle: "تسجيل الدخول",
+    registerTitle: "إنشاء حساب",
+    noAccount: "ليس لديك حساب؟",
+    signUpHere: "سجل هنا",
+    haveAccount: "لديك حساب بالفعل؟",
+    logInHere: "سجل الدخول هنا",
+    logout: "تسجيل الخروج"
   }
 };
 
@@ -340,7 +354,7 @@ async function loadFeeds() {
   const list = document.getElementById("feed-list");
 
   try {
-    const res = await fetch("/api/feeds");
+    const res = await fetch("/api/feeds", { credentials: "include" });
     if (!res.ok) throw new Error("Failed to fetch feeds");
     const feeds = await res.json();
     renderFeedList(feeds);
@@ -424,6 +438,7 @@ async function refreshSingleFeed(url, btn) {
   btn.classList.add("btn-refreshing");
   try {
     const res = await fetch("/api/refresh-feed?retentionDays=" + (localStorage.getItem("retentionDays") || "30"), {
+      credentials: "include",
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url }),
@@ -452,7 +467,7 @@ async function deleteFeed(id) {
 
 async function toggleFavoriteFeed(id) {
   try {
-    const res = await fetch(`/api/feeds/${id}/favorite`, { method: "PATCH" });
+    const res = await fetch(`/api/feeds/${id}/favorite`, { method: "PATCH", credentials: "include" });
     if (!res.ok) throw new Error("Failed to toggle favorite");
     const feed = allFeeds.find(function (f) { return f.id === id; });
     if (feed) {
@@ -501,11 +516,21 @@ async function loadNews() {
   container.innerHTML = skeletonHtml;
 
   try {
-    const res = await fetch("/api/news?retentionDays=" + (localStorage.getItem("retentionDays") || "30"));
-    if (!res.ok) throw new Error("Failed to fetch news");
+    const url = "/api/news?retentionDays=" + (localStorage.getItem("retentionDays") || "30");
+    console.log("[DEBUG] Fetching:", url);
+    const res = await fetch(url, { credentials: "include" });
+    console.log("[DEBUG] Response status:", res.status);
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("[DEBUG] Response body:", errText);
+      throw new Error("Failed to fetch news: HTTP " + res.status);
+    }
     allArticles = await res.json();
+    console.log("[DEBUG] Articles count:", allArticles.length);
+    if (allArticles.length > 0) console.log("[DEBUG] First article:", JSON.stringify(allArticles[0]));
     renderPage(1);
-  } catch {
+  } catch (err) {
+    console.error("[DEBUG] Fetch error:", err);
     container.textContent = "";
     emptyState.textContent = t("feedQuiet");
     emptyState.classList.remove("hidden");
@@ -590,18 +615,22 @@ function renderPage(page) {
     meta.className = "article-meta";
     meta.textContent = formatDate(a.publishDate);
 
-    if (a.imageUrl) {
-      var img = document.createElement("img");
-      img.className = "article-image";
-      img.src = a.imageUrl;
-      img.onerror = function () { img.style.display = "none"; };
-      card.appendChild(img);
-    }
+    const contentWrapper = document.createElement("div");
+    contentWrapper.className = "article-content-wrapper";
+    contentWrapper.appendChild(source);
+    contentWrapper.appendChild(title);
+    contentWrapper.appendChild(meta);
 
     const summary = document.createElement("div");
     summary.className = "article-summary";
     summary.dir = "auto";
     summary.innerHTML = a.summary;
+    contentWrapper.appendChild(summary);
+
+    const audioLink = a.audioUrl || a.AudioUrl;
+    if (audioLink && !audioLink.toLowerCase().includes(".webm") && !audioLink.toLowerCase().includes(".mp4")) {
+        contentWrapper.appendChild(buildAudioPlayer(audioLink));
+    }
 
     var articleActions = document.createElement("div");
     articleActions.className = "article-actions";
@@ -611,7 +640,7 @@ function renderPage(page) {
     bookmarkBtn.setAttribute("aria-label", t("bookmarkArticle"));
     bookmarkBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="' + (a.isBookmarked ? 'currentColor' : 'none') + '" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>';
     bookmarkBtn.addEventListener("click", function () {
-      fetch("/api/news/" + a.id + "/bookmark", { method: "PATCH" })
+      fetch("/api/news/" + a.id + "/bookmark", { method: "PATCH", credentials: "include" })
         .then(function (res) { return res.json(); })
         .then(function (data) {
           a.isBookmarked = data.isBookmarked;
@@ -638,16 +667,6 @@ function renderPage(page) {
       }
     });
 
-    card.appendChild(source);
-    card.appendChild(title);
-    card.appendChild(meta);
-    card.appendChild(summary);
-
-    const audioLink = a.audioUrl || a.AudioUrl;
-    if (audioLink && !audioLink.toLowerCase().includes(".webm") && !audioLink.toLowerCase().includes(".mp4")) {
-        card.appendChild(buildAudioPlayer(audioLink));
-    }
-
     articleActions.appendChild(bookmarkBtn);
 
     var aiBtn = document.createElement("button");
@@ -668,7 +687,7 @@ function renderPage(page) {
           var box = document.createElement("div");
           box.className = "ai-summary-box";
           box.innerHTML = data.summary;
-          card.insertBefore(box, articleActions);
+          contentWrapper.insertBefore(box, articleActions);
         })
         .finally(function () {
           aiBtn.disabled = false;
@@ -679,7 +698,18 @@ function renderPage(page) {
     articleActions.appendChild(aiBtn);
 
     articleActions.appendChild(readMore);
-    card.appendChild(articleActions);
+    contentWrapper.appendChild(articleActions);
+
+    card.appendChild(contentWrapper);
+
+    const imgUrl = a.imageUrl || a.ImageUrl || a.imageurl;
+    if (imgUrl) {
+      const img = document.createElement("img");
+      img.className = "article-thumbnail";
+      img.src = imgUrl;
+      img.onerror = function () { console.error("Image failed to load:", imgUrl); img.style.display = "none"; };
+      card.insertBefore(img, contentWrapper);
+    }
 
     fragment.appendChild(card);
   });
@@ -752,29 +782,50 @@ function setupAddFeedForm() {
   });
 }
 
-document.addEventListener("DOMContentLoaded", () => {
-  initTheme();
-  initLocale();
-
-  document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
-  document.getElementById("lang-toggle").addEventListener("click", toggleLocale);
-
-  var savedRetention = localStorage.getItem("retentionDays");
-  if (savedRetention) {
-    document.getElementById("retention-select").value = savedRetention;
-  } else {
-    localStorage.setItem("retentionDays", "30");
+async function checkAuth() {
+  try {
+    var res = await fetch("/api/auth/me", { credentials: "include" });
+    if (res.ok) {
+      document.getElementById("auth-modal").style.display = "none";
+      document.getElementById("btn-logout").style.display = "";
+      setupAuthorized();
+      return;
+    }
+  } catch (e) {
+    console.error("Auth check failed:", e);
   }
+  document.getElementById("auth-modal").style.display = "flex";
+  document.getElementById("btn-logout").style.display = "none";
+}
 
+function setupAuthorized() {
+  loadFeeds();
+  setupAddFeedForm();
+  setupRetention();
+  setupSearch();
+  setupTabs();
+  setupButtons();
+  setupListeners();
+}
+
+function setupRetention() {
+  var saved = localStorage.getItem("retentionDays");
+  document.getElementById("retention-select").value = saved || "30";
+  if (!saved) localStorage.setItem("retentionDays", "30");
   document.getElementById("retention-select").addEventListener("change", function () {
     localStorage.setItem("retentionDays", this.value);
   });
+}
 
-  loadFeeds();
-  setupAddFeedForm();
-
+function setupSearch() {
   document.getElementById("feed-search-sidebar").addEventListener("input", filterSidebarFeeds);
+  document.getElementById("search-input").addEventListener("input", debounce(function () {
+    searchQuery = document.getElementById("search-input").value;
+    renderPage(1);
+  }, 300));
+}
 
+function setupTabs() {
   document.querySelectorAll(".tab-btn").forEach(function (btn) {
     btn.addEventListener("click", function (e) {
       document.querySelectorAll(".tab-btn").forEach(function (b) { b.classList.remove("active"); });
@@ -784,7 +835,6 @@ document.addEventListener("DOMContentLoaded", () => {
       renderPage(1);
     });
   });
-
   document.querySelectorAll("[data-article-tab]").forEach(function (btn) {
     btn.addEventListener("click", function (e) {
       document.querySelectorAll("[data-article-tab]").forEach(function (b) { b.classList.remove("active"); });
@@ -793,13 +843,14 @@ document.addEventListener("DOMContentLoaded", () => {
       renderPage(1);
     });
   });
+}
 
+function setupButtons() {
   document.getElementById("btn-show-all").addEventListener("click", function () {
     excludedFeedTitles.clear();
     renderFeedList(allFeeds);
     renderPage(1);
   });
-
   document.getElementById("btn-hide-all").addEventListener("click", function () {
     var visibleFeeds = allFeeds;
     if (currentFeedTab === "fav") {
@@ -809,66 +860,127 @@ document.addEventListener("DOMContentLoaded", () => {
     renderFeedList(allFeeds);
     renderPage(1);
   });
+}
 
-  document.getElementById("refresh-btn").addEventListener("click", () => {
-    loadNews();
-  });
-
-  const debouncedSearch = debounce(() => {
-    searchQuery = document.getElementById("search-input").value;
-    renderPage(1);
-  }, 300);
-
-  document.getElementById("search-input").addEventListener("input", debouncedSearch);
-
-  document.getElementById("jump-page-input").addEventListener("keydown", (e) => {
+function setupListeners() {
+  document.getElementById("refresh-btn").addEventListener("click", function () { loadNews(); });
+  document.getElementById("jump-page-input").addEventListener("keydown", function (e) {
     if (e.key !== "Enter") return;
-    const totalPages = Math.ceil(getFilteredArticles().length / PAGE_SIZE);
-    const page = parseInt(e.target.value, 10);
+    var totalPages = Math.ceil(getFilteredArticles().length / PAGE_SIZE);
+    var page = parseInt(e.target.value, 10);
     if (isNaN(page)) return;
-    const clamped = Math.max(1, Math.min(page, totalPages));
+    var clamped = Math.max(1, Math.min(page, totalPages));
     e.target.value = "";
     renderPage(clamped);
   });
+  document.getElementById("prev-page-btn").addEventListener("click", function () { renderPage(currentPage - 1); });
+  document.getElementById("next-page-btn").addEventListener("click", function () { renderPage(currentPage + 1); });
+  document.getElementById("feed-list").addEventListener("click", function (e) {
+    var toggle = e.target.closest(".feed-toggle");
+    if (toggle) { toggleFeedVisibility(toggle.dataset.id); return; }
+    var refreshBtn = e.target.closest(".feed-refresh");
+    if (refreshBtn) { refreshSingleFeed(refreshBtn.dataset.url, refreshBtn); return; }
+    var deleteBtn = e.target.closest(".feed-delete");
+    if (deleteBtn) { deleteFeed(deleteBtn.dataset.id); return; }
+    var favoriteBtn = e.target.closest(".feed-favorite");
+    if (favoriteBtn) { toggleFavoriteFeed(favoriteBtn.dataset.id); return; }
+    var shareBtn = e.target.closest(".feed-share");
+    if (shareBtn) { copyFeedLink(shareBtn.dataset.url); return; }
+  });
+  document.getElementById("read-modal").querySelector(".modal-close").addEventListener("click", closeModal);
+  document.getElementById("read-modal").querySelector(".modal-backdrop").addEventListener("click", closeModal);
+}
 
-  document.getElementById("prev-page-btn").addEventListener("click", () => {
-    renderPage(currentPage - 1);
+document.addEventListener("DOMContentLoaded", () => {
+  initTheme();
+  initLocale();
+
+  checkAuth();
+
+  document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
+  document.getElementById("lang-toggle").addEventListener("click", toggleLocale);
+
+  document.getElementById("btn-logout").addEventListener("click", async function () {
+    await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+    window.location.reload();
   });
 
-  document.getElementById("next-page-btn").addEventListener("click", () => {
-    renderPage(currentPage + 1);
+  document.getElementById("show-register").addEventListener("click", function (e) {
+    e.preventDefault();
+    document.getElementById("auth-login-form").style.display = "none";
+    document.getElementById("auth-register-form").style.display = "";
+    document.getElementById("auth-error").style.display = "none";
   });
 
-  document.getElementById("feed-list").addEventListener("click", (e) => {
-    const toggle = e.target.closest(".feed-toggle");
-    if (toggle) {
-      toggleFeedVisibility(toggle.dataset.id);
+  document.getElementById("show-login").addEventListener("click", function (e) {
+    e.preventDefault();
+    document.getElementById("auth-register-form").style.display = "none";
+    document.getElementById("auth-login-form").style.display = "";
+    document.getElementById("auth-error").style.display = "none";
+  });
+
+  document.getElementById("auth-login-form").querySelector(".login-btn").addEventListener("click", async function (e) {
+    e.preventDefault();
+    var email = document.getElementById("login-email").value;
+    var password = document.getElementById("login-password").value;
+    var errEl = document.getElementById("auth-error");
+
+    try {
+      var res = await fetch("/login?useCookies=true", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email, password: password })
+      });
+      if (!res.ok) {
+        errEl.textContent = "Invalid email or password.";
+        errEl.style.display = "";
+        return;
+      }
+      checkAuth();
+    } catch (ex) {
+      errEl.textContent = "Network error. Please try again.";
+      errEl.style.display = "";
+    }
+  });
+
+  document.getElementById("auth-register-form").querySelector(".register-btn").addEventListener("click", async function (e) {
+    e.preventDefault();
+    var email = document.getElementById("register-email").value;
+    var password = document.getElementById("register-password").value;
+    var errEl = document.getElementById("auth-error");
+
+    if (password.length < 6) {
+      errEl.textContent = "Password must be at least 6 characters.";
+      errEl.style.display = "";
       return;
     }
-    const refreshBtn = e.target.closest(".feed-refresh");
-    if (refreshBtn) {
-      refreshSingleFeed(refreshBtn.dataset.url, refreshBtn);
-      return;
-    }
-    const deleteBtn = e.target.closest(".feed-delete");
-    if (deleteBtn) {
-      deleteFeed(deleteBtn.dataset.id);
-      return;
-    }
-    const favoriteBtn = e.target.closest(".feed-favorite");
-    if (favoriteBtn) {
-      toggleFavoriteFeed(favoriteBtn.dataset.id);
-      return;
-    }
-    const shareBtn = e.target.closest(".feed-share");
-    if (shareBtn) {
-      copyFeedLink(shareBtn.dataset.url);
-      return;
+
+    try {
+      var res = await fetch("/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email, password: password })
+      });
+      if (!res.ok) {
+        var data = await res.json();
+        var msg = "";
+        for (var key in data.errors) { msg += data.errors[key].join(", "); }
+        errEl.textContent = msg || "Registration failed.";
+        errEl.style.display = "";
+        return;
+      }
+      document.getElementById("auth-register-form").style.display = "none";
+      document.getElementById("auth-login-form").style.display = "";
+      document.getElementById("register-email").value = "";
+      document.getElementById("register-password").value = "";
+      showToast("Registration successful, please log in.", false);
+    } catch (ex) {
+      errEl.textContent = "Network error. Please try again.";
+      errEl.style.display = "";
     }
   });
 
   document.getElementById("read-modal").querySelector(".modal-close").addEventListener("click", closeModal);
-
   document.getElementById("read-modal").querySelector(".modal-backdrop").addEventListener("click", closeModal);
 });
 

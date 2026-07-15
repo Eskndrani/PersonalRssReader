@@ -662,6 +662,10 @@ h1, h2, h3 {
   border-radius: 8px;
   padding: 1.25rem 1.5rem;
   transition: all 0.2s ease;
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+  flex-direction: row;
 }
 
 .article-card:hover {
@@ -671,6 +675,22 @@ h1, h2, h3 {
 
 .article-read {
   opacity: 0.75;
+}
+
+.article-content-wrapper {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.article-thumbnail {
+  width: 220px;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 8px;
+  flex-shrink: 0;
+  background: var(--color-skeleton);
 }
 
 .article-bookmarked {
@@ -757,15 +777,6 @@ h1, h2, h3 {
   font-size: 0.75rem;
   color: var(--color-faint);
   margin-bottom: 0.625rem;
-}
-
-.article-image {
-  width: 100%;
-  max-height: 250px;
-  object-fit: cover;
-  border-radius: 8px;
-  margin-bottom: 1rem;
-  background: var(--color-skeleton);
 }
 
 .article-summary {
@@ -1093,6 +1104,81 @@ h1, h2, h3 {
   border-radius: 4px;
 }
 
+.auth-modal-content {
+  max-width: 380px;
+}
+
+.auth-form h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  text-align: center;
+}
+
+.auth-form input {
+  width: 100%;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--color-border-input);
+  border-radius: 8px;
+  font-size: 0.875rem;
+  background: var(--color-input-bg);
+  color: var(--color-text);
+  margin-bottom: 0.75rem;
+  font-family: inherit;
+}
+
+.auth-form input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
+  background: var(--color-surface);
+}
+
+.auth-form .login-btn,
+.auth-form .register-btn {
+  width: 100%;
+  margin-top: 0.25rem;
+}
+
+.auth-switch {
+  text-align: center;
+  font-size: 0.8125rem;
+  color: var(--color-muted);
+  margin-top: 0.75rem;
+}
+
+.auth-switch a {
+  color: var(--color-accent);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.auth-error {
+  font-size: 0.8125rem;
+  color: var(--color-error);
+  text-align: center;
+  margin-top: 0.5rem;
+}
+
+.header-logout {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  white-space: nowrap;
+  background: none;
+  border: 1px solid var(--color-border-input);
+  color: var(--color-muted);
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.header-logout:hover {
+  color: var(--color-error);
+  border-color: var(--color-error);
+}
+
 /* ── RTL Support ────────────────────────────────────────── */
 
 [dir="rtl"] body {
@@ -1169,5 +1255,12 @@ h1, h2, h3 {
 
   .article-card {
     padding: 1rem;
+    flex-direction: column;
+  }
+
+  .article-thumbnail {
+    width: 100%;
+    aspect-ratio: auto;
+    max-height: 200px;
   }
 }
