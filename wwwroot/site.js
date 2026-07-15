@@ -305,6 +305,7 @@ function toggleLocale() {
 
 let allFeeds = [];
 let allArticles = [];
+let historyArticles = [];
 let currentFeedTab = "all";
 let currentArticleTab = "all";
 let excludedFeedTitles = new Set();
@@ -597,13 +598,25 @@ async function loadNews() {
   }
 }
 
+async function loadHistory() {
+  try {
+    var res = await apiFetch("/api/articles/history");
+    if (res.ok) {
+      historyArticles = await res.json();
+    }
+  } catch {
+    historyArticles = [];
+  }
+}
+
 function skeletonHtml() {
   return Array.from({ length: 3 }, function () { return '<article class="article-card skeleton-article"><div class="article-feed-source"><span class="skeleton-block skeleton-tag"></span></div><h3 class="article-title"><span class="skeleton-block skeleton-text"></span></h3><div class="article-meta"><span class="skeleton-block skeleton-text skeleton-text--short"></span></div><p class="article-summary"><span class="skeleton-block skeleton-text"></span><span class="skeleton-block skeleton-text skeleton-text--medium"></span></p></article>'; }).join("");
 }
 
 function getFilteredArticles() {
   const q = searchQuery.trim().toLowerCase();
-  return allArticles.filter((a) => {
+  var source = currentArticleTab === "history" ? historyArticles : allArticles;
+  return source.filter((a) => {
     if (currentArticleTab === "bookmarks" && !a.isBookmarked) return false;
     if (excludedFeedTitles.has(a.feedTitle)) return false;
     var favTitles = new Set(allFeeds.filter(function (f) { return f.isFavorite; }).map(function (f) { return f.title; }));
@@ -729,7 +742,7 @@ function renderPage(page) {
     readMore.textContent = t("readMore");
     readMore.addEventListener("click", function () {
       openModal(a);
-      fetch("/api/news/" + a.id + "/read", { method: "PATCH" });
+      apiFetch("/api/news/" + a.id + "/read", { method: "PATCH" });
       if (!a.isRead) {
         a.isRead = true;
         card.classList.add("article-read");
@@ -1156,10 +1169,11 @@ function setupTabs() {
     });
   });
   document.querySelectorAll("[data-article-tab]").forEach(function (btn) {
-    btn.addEventListener("click", function (e) {
+    btn.addEventListener("click", async function (e) {
       document.querySelectorAll("[data-article-tab]").forEach(function (b) { b.classList.remove("active"); });
       e.target.classList.add("active");
       currentArticleTab = e.target.dataset.articleTab;
+      if (currentArticleTab === "history") await loadHistory();
       renderPage(1);
     });
   });

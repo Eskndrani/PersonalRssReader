@@ -596,6 +596,19 @@ app.MapPatch("/api/news/{id}/read", async (int id, AppDbContext db, HttpContext 
     return Results.Ok(new { id = article.Id, isRead = article.IsRead });
 });
 
+app.MapGet("/api/articles/history", async (AppDbContext db, HttpContext http) =>
+{
+    var key = GetUserKey(http);
+    var articles = await db.Articles
+        .Where(a => (a.UserId == key || a.GuestSessionId == key) && a.IsRead)
+        .OrderByDescending(a => a.PublishDate)
+        .Take(50)
+        .Select(a => new Article(a.Id, a.FeedTitle, a.Title, a.Link, a.PublishDate,
+            a.Summary, a.AudioUrl, a.ImageUrl, a.IsBookmarked, a.IsRead))
+        .ToListAsync();
+    return Results.Ok(articles);
+});
+
 app.MapPost("/api/chat", async (
     ChatRequest request, IAiService ai, HttpContext http, AppDbContext db,
     [FromQuery] string lang = "en") =>
