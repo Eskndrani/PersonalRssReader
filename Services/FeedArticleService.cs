@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Xml;
 using System.Xml.Linq;
 using Ganss.Xss;
 
@@ -18,6 +19,14 @@ public sealed class FeedArticleService
     private static readonly XNamespace ContentNs = "http://purl.org/rss/1.0/modules/content/";
     private static readonly XNamespace MrssNs = "http://search.yahoo.com/mrss/";
     private static readonly XNamespace AtomNs = "http://www.w3.org/2005/Atom";
+
+    private static readonly XmlReaderSettings XmlSettings = new()
+    {
+        IgnoreWhitespace = true,
+        IgnoreComments = true,
+        DtdProcessing = DtdProcessing.Ignore,
+        Async = false
+    };
 
     public FeedArticleService(IHttpClientFactory httpClientFactory)
     {
@@ -76,13 +85,21 @@ public sealed class FeedArticleService
         }
 
         var response = await client.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode)
+            Console.WriteLine($"[FEED FETCH] {url} → HTTP {response.StatusCode}");
+
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadAsStringAsync(ct);
     }
 
     private static (string? title, List<ParsedItem> items) ParseXmlToItems(string xml)
     {
-        var doc = XDocument.Parse(xml);
+        XDocument doc;
+        using (var reader = XmlReader.Create(new StringReader(xml), XmlSettings))
+        {
+            doc = XDocument.Load(reader);
+        }
+
         var root = doc.Root!;
         var isAtom = root.Name.LocalName == "feed" && root.Name.Namespace == AtomNs;
 
@@ -97,6 +114,8 @@ public sealed class FeedArticleService
 
         foreach (var el in itemElements)
         {
+            try
+            {
             var enclosures = new List<ParsedEnclosure>();
             var mediaItems = new List<ParsedMedia>();
 
@@ -151,6 +170,8 @@ public sealed class FeedArticleService
                 Enclosures: enclosures,
                 Media: mediaItems,
                 Element: el));
+            }
+            catch { }
         }
 
         return (title, items);
@@ -159,8 +180,12 @@ public sealed class FeedArticleService
     private static DateTime? ParseDate(string? raw)
     {
         if (string.IsNullOrEmpty(raw)) return null;
-        if (DateTimeOffset.TryParse(raw, out var dto)) return dto.UtcDateTime;
-        if (DateTime.TryParse(raw, out var dt)) return dt;
+        try
+        {
+            if (DateTimeOffset.TryParse(raw, out var dto)) return dto.UtcDateTime;
+            if (DateTime.TryParse(raw, out var dt)) return dt;
+        }
+        catch { }
         return null;
     }
 

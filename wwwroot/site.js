@@ -821,8 +821,12 @@ function setupAddFeedForm() {
   });
 
   if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || "Batch import failed");
+        var errMsg = "Batch import failed";
+        try {
+          var errData = await res.json();
+          errMsg = errData.message || errData.errors || errMsg;
+        } catch (e) {}
+        throw new Error(errMsg);
       }
 
       const result = await res.json();

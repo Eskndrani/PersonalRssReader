@@ -77,8 +77,13 @@ builder.Services.AddHttpClient("FeedReader", client =>
 {
     client.DefaultRequestHeaders.UserAgent.ParseAdd(
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
+    client.DefaultRequestHeaders.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8");
+    client.DefaultRequestHeaders.Add("Accept-Language", "en-US,en;q=0.5");
+    client.DefaultRequestHeaders.Add("Referer", "https://www.google.com/");
     client.Timeout = TimeSpan.FromSeconds(30);
 });
+
+System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12 | System.Net.SecurityProtocolType.Tls13;
 
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
@@ -267,9 +272,10 @@ app.MapPost("/api/feeds", async (
     HttpContext http, CancellationToken ct) =>
 {
     var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+    var normalizedUrl = dto.Url.Trim().TrimEnd('/').ToLowerInvariant();
 
-    if (await db.Feeds.AnyAsync(f => f.Url == dto.Url && f.UserId == userId))
-        return Results.BadRequest("A feed with this URL already exists.");
+    if (await db.Feeds.AnyAsync(f => f.Url.Trim().TrimEnd('/').ToLower() == normalizedUrl && f.UserId == userId))
+        return Results.Conflict(new { message = "You have already subscribed to this feed." });
 
     string title;
     try
@@ -303,10 +309,10 @@ app.MapPost("/api/feeds/batch", async (
 {
     var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
     var existingUrls = await db.Feeds.Where(f => f.UserId == userId).Select(f => f.Url).ToListAsync();
-    var existingSet = new HashSet<string>(existingUrls);
+    var existingSet = new HashSet<string>(existingUrls.Select(u => u.Trim().TrimEnd('/').ToLowerInvariant()));
 
     var newUrls = dto.Urls
-        .Select(u => u.Trim())
+        .Select(u => u.Trim().TrimEnd('/').ToLowerInvariant())
         .Where(u => !string.IsNullOrEmpty(u) && !existingSet.Contains(u))
         .Distinct()
         .ToArray();
