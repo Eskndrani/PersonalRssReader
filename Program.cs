@@ -175,6 +175,7 @@ app.MapGet("/api/news", async (AppDbContext db, [FromQuery] int? retentionDays) 
                     Link = link,
                     PublishDate = item.PublishingDate ?? now,
                     Summary = sanitizer.Sanitize(WebUtility.HtmlDecode(item.Description ?? "")),
+                    ImageUrl = GetImageUrl(item),
                     AudioUrl = GetEnclosureAudioUrl(item)
                 });
             }
@@ -215,7 +216,7 @@ app.MapGet("/api/news", async (AppDbContext db, [FromQuery] int? retentionDays) 
 
     var articles = await db.Articles
         .OrderByDescending(a => a.PublishDate)
-        .Select(a => new Article(a.Id, a.FeedTitle, a.Title, a.Link, a.PublishDate, a.Summary, a.AudioUrl, a.IsBookmarked, a.IsRead))
+        .Select(a => new Article(a.Id, a.FeedTitle, a.Title, a.Link, a.PublishDate, a.Summary, a.AudioUrl, a.ImageUrl, a.IsBookmarked, a.IsRead))
         .ToListAsync();
 
     return Results.Ok(articles);
@@ -410,6 +411,42 @@ string? GetEnclosureAudioUrl(CodeHollow.FeedReader.FeedItem item)
     return null;
 }
 
+string? GetImageUrl(CodeHollow.FeedReader.FeedItem item)
+{
+    if (item.SpecificItem is CodeHollow.FeedReader.Feeds.Rss20FeedItem rssItem && rssItem.Enclosure != null)
+    {
+        if (rssItem.Enclosure.MediaType != null && rssItem.Enclosure.MediaType.StartsWith("image", StringComparison.OrdinalIgnoreCase))
+            return rssItem.Enclosure.Url;
+    }
+
+    var mediaContents = item.SpecificItem is CodeHollow.FeedReader.Feeds.Rss20FeedItem rss
+        ? rss.Element.Elements().Where(e => e.Name.LocalName == "content")
+        : Enumerable.Empty<XElement>();
+
+    foreach (var mc in mediaContents)
+    {
+        var type = mc.Attribute("type")?.Value ?? "";
+        var medium = mc.Attribute("medium")?.Value ?? "";
+        if (type.StartsWith("image", StringComparison.OrdinalIgnoreCase) || medium == "image")
+        {
+            var url = mc.Attribute("url")?.Value;
+            if (!string.IsNullOrEmpty(url)) return url;
+        }
+    }
+
+    if (item.SpecificItem is CodeHollow.FeedReader.Feeds.Rss20FeedItem rssItem2)
+    {
+        var itunesImage = rssItem2.Element.Element("{http://www.itunes.com/dtds/podcast-1.0.dtd}image");
+        if (itunesImage != null)
+        {
+            var href = itunesImage.Attribute("href")?.Value;
+            if (!string.IsNullOrEmpty(href)) return href;
+        }
+    }
+
+    return null;
+}
+
 async Task<string> GenerateAiSummaryAsync(string input)
 {
     await Task.Delay(1500);
@@ -434,6 +471,7 @@ class ArticleEntity
     public DateTime PublishDate { get; set; }
     public string Link { get; set; } = "";
     public string? AudioUrl { get; set; }
+    public string? ImageUrl { get; set; }
     public bool IsBookmarked { get; set; } = false;
     public bool IsRead { get; set; } = false;
 }
@@ -459,4 +497,4 @@ record Feed(string Id, string Url, string Title, string? Username = null, string
 record FeedDto(string Url, string? Username = null, string? Password = null);
 record BatchFeedDto(string[] Urls, string? Username = null, string? Password = null);
 record SummarizeDto(string Link, string TextContent);
-record Article(int Id, string FeedTitle, string Title, string Link, DateTime PublishDate, string Summary, string? AudioUrl = null, bool IsBookmarked = false, bool IsRead = false);
+record Article(int Id, string FeedTitle, string Title, string Link, DateTime PublishDate, string Summary, string? AudioUrl = null, string? ImageUrl = null, bool IsBookmarked = false, bool IsRead = false);

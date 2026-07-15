@@ -590,6 +590,14 @@ function renderPage(page) {
     meta.className = "article-meta";
     meta.textContent = formatDate(a.publishDate);
 
+    if (a.imageUrl) {
+      var img = document.createElement("img");
+      img.className = "article-image";
+      img.src = a.imageUrl;
+      img.onerror = function () { img.style.display = "none"; };
+      card.appendChild(img);
+    }
+
     const summary = document.createElement("div");
     summary.className = "article-summary";
     summary.dir = "auto";
