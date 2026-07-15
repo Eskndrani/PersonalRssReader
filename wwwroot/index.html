@@ -100,6 +100,12 @@
 
       <div class="search-bar">
         <input type="text" id="search-input" data-i18n-placeholder="searchArticles" placeholder="Search articles…" autocomplete="off">
+        <button id="btn-daily-briefing" class="btn btn-primary" style="margin-left: 0.5rem; flex-shrink: 0;" data-i18n="dailyBriefing">Daily Briefing</button>
+      </div>
+
+      <div id="briefing-card" class="briefing-card" style="display: none;">
+        <div class="briefing-content" id="briefing-content"></div>
+        <button id="btn-dismiss-briefing" class="btn btn-secondary" style="margin-top: 0.5rem;" data-i18n="dismiss">Dismiss</button>
       </div>
 
       <div id="articles-container" class="articles-container">

@@ -117,7 +117,9 @@ const translations = {
     signUpHere: "Sign up here",
     haveAccount: "Already have an account?",
     logInHere: "Log in here",
-    logout: "Logout"
+    logout: "Logout",
+    dailyBriefing: "Daily Briefing",
+    dismiss: "Dismiss"
   },
   ar: {
     subscriptions: "الاشتراكات",
@@ -179,7 +181,9 @@ const translations = {
     signUpHere: "سجل هنا",
     haveAccount: "لديك حساب بالفعل؟",
     logInHere: "سجل الدخول هنا",
-    logout: "تسجيل الخروج"
+    logout: "تسجيل الخروج",
+    dailyBriefing: "الموجز اليومي",
+    dismiss: "إغلاق"
   }
 };
 
@@ -806,6 +810,36 @@ function setupAuthorized() {
   setupTabs();
   setupButtons();
   setupListeners();
+  setupBriefing();
+}
+
+function setupBriefing() {
+  document.getElementById("btn-daily-briefing").addEventListener("click", async function () {
+    var btn = document.getElementById("btn-daily-briefing");
+    var card = document.getElementById("briefing-card");
+    var content = document.getElementById("briefing-content");
+
+    btn.disabled = true;
+    btn.classList.add("btn-refreshing");
+    card.style.display = "block";
+    content.textContent = "Generating your briefing...";
+
+    try {
+      var res = await fetch("/api/news/daily-briefing", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to generate briefing");
+      var data = await res.json();
+      content.textContent = data.summary;
+    } catch (err) {
+      content.textContent = "Could not generate briefing. Please try again.";
+    } finally {
+      btn.disabled = false;
+      btn.classList.remove("btn-refreshing");
+    }
+  });
+
+  document.getElementById("btn-dismiss-briefing").addEventListener("click", function () {
+    document.getElementById("briefing-card").style.display = "none";
+  });
 }
 
 function setupRetention() {

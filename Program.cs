@@ -36,6 +36,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 });
 
 builder.Services.AddScoped<FeedArticleService>();
+builder.Services.AddScoped<IAiService, AiService>();
 builder.Services.AddHostedService<FeedRefreshWorker>();
 
 var app = builder.Build();
@@ -354,6 +355,21 @@ app.MapPatch("/api/news/{id}/read", async (int id, AppDbContext db, HttpContext 
     await db.SaveChangesAsync();
 
     return Results.Ok(new { id = article.Id, isRead = article.IsRead });
+}).RequireAuthorization();
+
+app.MapGet("/api/news/daily-briefing", async (
+    AppDbContext db, IAiService ai, HttpContext http) =>
+{
+    var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+    var today = DateTime.UtcNow.Date;
+    var articles = await db.Articles
+        .Where(a => a.UserId == userId && !a.IsRead && a.PublishDate >= today)
+        .OrderByDescending(a => a.PublishDate)
+        .Take(10)
+        .ToListAsync();
+
+    var summary = await ai.GenerateDailySummaryAsync(articles);
+    return Results.Ok(new { summary });
 }).RequireAuthorization();
 
 app.MapGet("/api/hacker", () =>
