@@ -288,9 +288,38 @@ app.MapPost("/api/auth/resend-verification", async (
     return Results.Ok(new { message = "A new verification link has been sent to your email." });
 });
 
-app.MapGet("/api/feeds", async (AppDbContext db, HttpContext http) =>
+string[] GuestFeedUrls = {
+    "https://hackaday.com/feed/",
+    "https://www.elbalad.news/rss.aspx",
+    "http://feeds.bbci.co.uk/arabic/rss.xml",
+    "https://blog.arduino.cc/feed/"
+};
+
+app.MapGet("/api/feeds", async (AppDbContext db, HttpContext http, FeedArticleService articleService) =>
 {
     var key = GetUserKey(http);
+    var isGuest = http.User.FindFirstValue(ClaimTypes.NameIdentifier) is null;
+
+    var feedCount = await db.Feeds.CountAsync(f => f.UserId == key || f.GuestSessionId == key);
+    if (isGuest && feedCount == 0)
+    {
+        foreach (var url in GuestFeedUrls)
+        {
+            string title;
+            try { title = await articleService.FetchFeedTitleAsync(url, null, null, CancellationToken.None); }
+            catch { title = url; }
+            db.Feeds.Add(new FeedSubscription
+            {
+                Id = Guid.NewGuid().ToString(),
+                Url = url,
+                Title = title,
+                GuestSessionId = key,
+                FaviconUrl = GetFaviconUrl(url)
+            });
+        }
+        await db.SaveChangesAsync();
+    }
+
     var feeds = await db.Feeds.Where(f => f.UserId == key || f.GuestSessionId == key).OrderBy(f => f.Title)
         .Select(f => new { f.Id, f.Url, f.Title, f.Username, f.Password, f.IsFavorite, f.FaviconUrl, ArticleCount = db.Articles.Count(a => (a.UserId == key || a.GuestSessionId == key) && a.FeedTitle == f.Title) })
         .ToListAsync();
@@ -427,8 +456,6 @@ app.MapDelete("/api/feeds/{id}", async (string id, AppDbContext db, HttpContext 
 
     return Results.NoContent();
 });
-
-string[] GuestFeedUrls = { "https://feeds.bbci.co.uk/news/rss.xml", "https://feeds.hanselman.com/ScottHanselman", "https://devblogs.microsoft.com/dotnet/feed/" };
 
 app.MapGet("/api/news", async (
     AppDbContext db, FeedArticleService articleService,

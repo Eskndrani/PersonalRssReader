@@ -45,7 +45,7 @@ public sealed class GuestCleanupService : BackgroundService
         }
 
         var expiredArticles = await db.Articles
-            .Where(a => a.UserId == null && a.GuestSessionId != null && a.CreatedAt < cutoff)
+            .Where(a => a.UserId == null && a.GuestSessionId != null && a.CreatedAt < cutoff && !a.IsBookmarked)
             .ToListAsync(ct);
         if (expiredArticles.Count > 0)
         {
