@@ -72,9 +72,17 @@ img { max-width: 100%; }
 /* ═══════════════ SIDEBAR ═══════════════ */
 .sidebar-header { display: flex; align-items: center; justify-content: space-between; padding: 1.25rem 1rem 0.75rem; border-bottom: 1px solid var(--border); }
 .sidebar-header h2 { font-size: 0.8125rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
+.sidebar-logo { vertical-align: -4px; margin-right: 5px; }
 .sidebar-user { padding: 0.625rem 1rem; border-bottom: 1px solid var(--border); overflow: hidden; }
-.ai-quota-counter { font-size: 0.68rem; color: var(--text-muted); margin-top: 0.25rem; }
-.ai-quota-counter.quota-exhausted { color: var(--color-error); font-weight: 600; }
+.ai-quota-counter { margin-top: 0.5rem; padding: 0.5rem 0.65rem; background: var(--card-bg, rgba(255,255,255,0.03)); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.ai-quota-counter.quota-exhausted { border-color: var(--color-error); }
+.quota-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem; }
+.quota-label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); }
+.quota-numbers { font-size: 0.7rem; font-weight: 600; color: var(--text-heading); font-variant-numeric: tabular-nums; }
+.quota-bar-track { height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; margin-bottom: 0.3rem; }
+.quota-bar-fill { height: 100%; border-radius: 2px; background: linear-gradient(90deg, #6366f1, #8b5cf6); transition: width 0.4s ease; }
+.quota-bar-fill.exhausted { background: linear-gradient(90deg, #ef4444, #f87171); }
+.quota-reset-timer { font-size: 0.6rem; color: var(--text-muted); }
 .user-email { font-size: 0.75rem; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; max-width: 100%; }
 .header-actions { display: flex; align-items: center; gap: 0.375rem; flex-shrink: 0; }
 

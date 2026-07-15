@@ -896,6 +896,8 @@ function getSessionId() {
   return guestSessionId;
 }
 
+var quotaTimer = null;
+
 async function updateQuotaUI() {
   var el = document.getElementById("ai-quota-counter");
   if (!el) return;
@@ -904,9 +906,34 @@ async function updateQuotaUI() {
     if (!res.ok) return;
     var data = await res.json();
     el.style.display = "";
-    el.textContent = "AI: " + data.used + "/" + data.limit;
-    if (data.used >= data.limit) el.classList.add("quota-exhausted");
+
+    var pct = data.limit > 0 ? Math.round((data.used / data.limit) * 100) : 0;
+    var exhausted = data.used >= data.limit;
+
+    el.querySelector(".quota-numbers").textContent = data.used + "/" + data.limit;
+    el.querySelector(".quota-bar-fill").style.width = pct + "%";
+    el.querySelector(".quota-bar-fill").className = "quota-bar-fill" + (exhausted ? " exhausted" : "");
+
+    if (exhausted) el.classList.add("quota-exhausted");
     else el.classList.remove("quota-exhausted");
+
+    if (quotaTimer) clearInterval(quotaTimer);
+    var resetEl = el.querySelector(".quota-reset-timer");
+    function tick() {
+      var now = Date.now();
+      var target = new Date(data.nextReset).getTime();
+      var diff = Math.max(0, target - now);
+      if (diff <= 0) {
+        resetEl.textContent = "Resetting...";
+        if (quotaTimer) clearInterval(quotaTimer);
+        return;
+      }
+      var h = Math.floor(diff / 3600000);
+      var m = Math.floor((diff % 3600000) / 60000);
+      resetEl.textContent = "Resets in " + h + "h " + m + "m";
+    }
+    tick();
+    quotaTimer = setInterval(tick, 30000);
   } catch {
     el.style.display = "none";
   }

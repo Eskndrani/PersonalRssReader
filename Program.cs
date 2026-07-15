@@ -178,7 +178,8 @@ app.MapGet("/api/quota", async (AppDbContext db, HttpContext http) =>
     var (userId, limit, _) = GetQuotaParams(http);
     var today = DateOnly.FromDateTime(DateTime.UtcNow);
     var usage = await db.AiUsage.FirstOrDefaultAsync(u => u.UserId == userId && u.Date == today);
-    return Results.Ok(new { used = usage?.RequestCount ?? 0, limit });
+    var nextReset = DateTime.UtcNow.Date.AddDays(1);
+    return Results.Ok(new { used = usage?.RequestCount ?? 0, limit, nextReset = nextReset.ToString("o") });
 });
 
 app.MapPost("/api/auth/logout", async (SignInManager<IdentityUser> signInManager) =>

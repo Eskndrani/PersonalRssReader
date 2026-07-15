@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Personal RSS Reader</title>
+  <link rel="icon" type="image/svg+xml" href="/logo.svg">
   <link rel="stylesheet" href="/site.css">
 </head>
 <body>
@@ -15,10 +16,22 @@
     <aside class="sidebar" id="app-sidebar">
       <div class="sidebar-user">
         <span id="user-email" class="user-email"></span>
-        <div id="ai-quota-counter" class="ai-quota-counter" style="display:none;"></div>
+        <div id="ai-quota-counter" class="ai-quota-counter" style="display:none;">
+          <div class="quota-header">
+            <span class="quota-label">AI Quota</span>
+            <span class="quota-numbers"></span>
+          </div>
+          <div class="quota-bar-track">
+            <div class="quota-bar-fill"></div>
+          </div>
+          <div class="quota-reset-timer"></div>
+        </div>
       </div>
       <div class="sidebar-header">
-        <h2 data-i18n="subscriptions">Subscriptions</h2>
+        <h2 data-i18n="subscriptions">
+          <img src="/logo.svg" alt="" class="sidebar-logo" width="20" height="20">
+          Subscriptions
+        </h2>
         <div class="header-actions">
           <button id="lang-toggle" class="lang-toggle" title="Switch language" aria-label="Switch language">العربية</button>
           <button id="theme-toggle" class="theme-toggle" title="Toggle dark mode" aria-label="Toggle dark mode">
