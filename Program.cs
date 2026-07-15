@@ -31,21 +31,33 @@ builder.Services.AddAuthentication()
         {
             OnTicketReceived = async ctx =>
             {
-                var db = ctx.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+                var userManager = ctx.HttpContext.RequestServices.GetRequiredService<UserManager<IdentityUser>>();
                 var email = ctx.Principal?.FindFirst(ClaimTypes.Email)?.Value;
                 if (string.IsNullOrEmpty(email)) return;
 
-                var user = await db.Users.FirstOrDefaultAsync(u => u.Email == email);
-                if (user is null)
+                var existingUser = await userManager.FindByEmailAsync(email);
+                if (existingUser is null)
                 {
-                    user = new IdentityUser
+                    var newUser = new IdentityUser
                     {
                         UserName = email,
                         Email = email,
                         EmailConfirmed = true
                     };
-                    await db.Users.AddAsync(user);
-                    await db.SaveChangesAsync();
+                    var result = await userManager.CreateAsync(newUser);
+                    if (!result.Succeeded)
+                    {
+                        foreach (var err in result.Errors)
+                            Console.WriteLine($"[IDENTITY ERROR Google] {err.Code}: {err.Description}");
+                    }
+                }
+
+                if (ctx.Principal?.Identity is ClaimsIdentity identity)
+                {
+                    var nameClaim = identity.FindFirst(ClaimTypes.Name);
+                    if (nameClaim is not null)
+                        identity.RemoveClaim(nameClaim);
+                    identity.AddClaim(new Claim(ClaimTypes.Name, email));
                 }
             }
         };

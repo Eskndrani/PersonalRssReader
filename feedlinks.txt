@@ -43,3 +43,25 @@ Aeon Essays: https://aeon.co/feed.rss
 
 Training & Nutrition
 Stronger by Science: https://www.strongerbyscience.com/feed/
+
+
+https://news.ycombinator.com/rss
+https://feeds.hanselman.com/ScottHanselman
+https://devblogs.microsoft.com/dotnet/feed/
+https://martinfowler.com/feed.atom
+https://github.blog/feed/
+https://stackoverflow.blog/feed/
+https://herbsutter.com/feed/
+https://api.quantamagazine.org/feed/
+https://www.geeksforgeeks.org/feed/
+https://hackaday.com/blog/feed/
+https://blog.arduino.cc/feed/
+https://www.raspberrypi.com/news/feed/
+https://feeds.arstechnica.com/arstechnica/index
+https://www.theverge.com/rss/index.xml
+https://techcrunch.com/feed/
+https://www.smashingmagazine.com/feed/
+https://plato.stanford.edu/rss/sep.xml
+https://dailynous.com/feed/
+https://aeon.co/feed.rss
+https://www.strongerbyscience.com/feed/
