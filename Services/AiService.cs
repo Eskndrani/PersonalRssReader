@@ -54,7 +54,7 @@ public sealed class AiService : IAiService
     public async Task<string> AskQuestionAsync(string question, string userId, string lang = "en")
     {
         var articles = await _db.Articles
-            .Where(a => a.UserId == userId)
+            .Where(a => a.UserId == userId || a.GuestSessionId == userId)
             .OrderByDescending(a => a.PublishDate)
             .Take(20)
             .ToListAsync();
@@ -76,10 +76,17 @@ public sealed class AiService : IAiService
     public async Task<string> SummarizeArticleAsync(int articleId, string userId, string lang = "en")
     {
         var article = await _db.Articles
-            .FirstOrDefaultAsync(a => a.Id == articleId && a.UserId == userId);
+            .FirstOrDefaultAsync(a => a.Id == articleId && (a.UserId == userId || a.GuestSessionId == userId));
 
         if (article is null)
-            return lang == "ar" ? "المقال غير موجود." : "Article not found.";
+            return lang == "ar"
+                ? $"خطأ: المقال رقم {articleId} غير موجود في قاعدة البيانات أو الوصول مرفوض."
+                : $"Error: Article ID {articleId} not found in database or access denied.";
+
+        if (string.IsNullOrWhiteSpace(article.Summary) && string.IsNullOrWhiteSpace(article.Title))
+            return lang == "ar"
+                ? "خطأ: لا يحتوي المقال على نص قابل للقراءة للتلخيص."
+                : "Error: Article has no readable text to summarize.";
 
         var fullText = article.Summary ?? "";
 

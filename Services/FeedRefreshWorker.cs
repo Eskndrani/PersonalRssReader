@@ -38,7 +38,7 @@ public sealed class FeedRefreshWorker : BackgroundService
         var articleService = scope.ServiceProvider.GetRequiredService<FeedArticleService>();
 
         var feedGroups = await db.Feeds
-            .Select(f => new { f.Url, f.Title, f.Username, f.Password, f.UserId })
+            .Select(f => new { f.Url, f.Title, f.Username, f.Password, f.UserId, f.GuestSessionId })
             .GroupBy(f => f.Url)
             .ToListAsync(ct);
 
@@ -62,7 +62,7 @@ public sealed class FeedRefreshWorker : BackgroundService
                 foreach (var subscriber in subscribers)
                 {
                     var existingLinks = await db.Articles
-                        .Where(a => a.UserId == subscriber.UserId)
+                        .Where(a => a.UserId == subscriber.UserId || a.GuestSessionId == subscriber.GuestSessionId)
                         .Select(a => a.Link)
                         .ToListAsync(ct);
 
@@ -70,10 +70,17 @@ public sealed class FeedRefreshWorker : BackgroundService
 
                     var newArticles = uniqueArticles
                         .Where(a => !existingSet.Contains(a.Link))
-                        .Select(a =>
+                        .Select(a => new ArticleEntity
                         {
-                            a.UserId = subscriber.UserId;
-                            return a;
+                            FeedTitle = a.FeedTitle,
+                            Title = a.Title,
+                            Link = a.Link,
+                            PublishDate = a.PublishDate,
+                            Summary = a.Summary,
+                            ImageUrl = a.ImageUrl,
+                            AudioUrl = a.AudioUrl,
+                            UserId = subscriber.UserId,
+                            GuestSessionId = subscriber.GuestSessionId
                         })
                         .ToList();
 

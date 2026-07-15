@@ -89,7 +89,10 @@ public sealed class FeedArticleService
             Console.WriteLine($"[FEED FETCH] {url} → HTTP {response.StatusCode}");
 
         response.EnsureSuccessStatusCode();
-        return await response.Content.ReadAsStringAsync(ct);
+        var rawXml = await response.Content.ReadAsStringAsync(ct);
+        rawXml = rawXml.Replace("\u200C", "").Replace("\u200D", "");
+        rawXml = System.Text.RegularExpressions.Regex.Replace(rawXml, @"[\x00-\x08\x0B\x0C\x0E-\x1F]", "");
+        return rawXml;
     }
 
     private static (string? title, List<ParsedItem> items) ParseXmlToItems(string xml)

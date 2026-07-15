@@ -20,10 +20,33 @@ function formatDate(dateStr) {
   });
 }
 
+function timeSince(dateString) {
+  const date = new Date(dateString);
+  const seconds = Math.floor((new Date() - date) / 1000);
+  let interval = seconds / 31536000;
+  if (interval > 1) return Math.floor(interval) + "y ago";
+  interval = seconds / 2592000;
+  if (interval > 1) return Math.floor(interval) + "mo ago";
+  interval = seconds / 86400;
+  if (interval > 1) return Math.floor(interval) + "d ago";
+  interval = seconds / 3600;
+  if (interval > 1) return Math.floor(interval) + "h ago";
+  interval = seconds / 60;
+  if (interval > 1) return Math.floor(interval) + "m ago";
+  return Math.floor(seconds) + "s ago";
+}
+
 function stripTags(html) {
-  const tmp = document.createElement("div");
+  var tmp = document.createElement("div");
   tmp.innerHTML = html;
   return tmp.textContent || tmp.innerText || "";
+}
+
+function decodeHtml(html) {
+  if (!html) return "";
+  var txt = document.createElement("textarea");
+  txt.innerHTML = html;
+  return txt.value.replace(/<!\[CDATA\[(.*?)\]\]>/g, "$1");
 }
 
 function debounce(fn, delay) {
@@ -394,14 +417,11 @@ async function loadFeeds() {
   list.replaceChildren();
 
   try {
-    await loadNews();
-    var res = await fetch("/api/feeds?t=" + Date.now(), {
-      credentials: "include",
-      cache: "no-store"
-    });
+    var res = await apiFetch("/api/feeds?t=" + Date.now());
     if (!res.ok) throw new Error("Failed to fetch feeds");
     var feeds = await res.json();
     renderFeedList(feeds);
+    await loadNews();
   } catch {
     list.innerHTML =
       '<li class="feed-item" style="color:#9ca3af; padding:1rem 1.25rem;">' + t("noSubscriptions") + '</li>';
@@ -496,8 +516,7 @@ async function refreshSingleFeed(url, btn) {
   btn.disabled = true;
   btn.classList.add("btn-refreshing");
   try {
-    const res = await fetch("/api/refresh-feed?retentionDays=" + (localStorage.getItem("retentionDays") || "30"), {
-      credentials: "include",
+    var res = await apiFetch("/api/refresh-feed?retentionDays=" + (localStorage.getItem("retentionDays") || "30"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url }),
@@ -515,7 +534,7 @@ async function refreshSingleFeed(url, btn) {
 
 async function deleteFeed(id) {
   try {
-    const res = await fetch(`/api/feeds/${id}`, { method: "DELETE" });
+    var res = await apiFetch("/api/feeds/" + id, { method: "DELETE" });
     if (!res.ok) throw new Error("Failed to delete feed");
     await loadFeeds();
     showToast(t("feedRemoved"), false);
@@ -526,9 +545,9 @@ async function deleteFeed(id) {
 
 async function toggleFavoriteFeed(id) {
   try {
-    const res = await fetch(`/api/feeds/${id}/favorite`, { method: "PATCH", credentials: "include" });
+    var res = await apiFetch("/api/feeds/" + id + "/favorite", { method: "PATCH" });
     if (!res.ok) throw new Error("Failed to toggle favorite");
-    const feed = allFeeds.find(function (f) { return f.id === id; });
+    var feed = allFeeds.find(function (f) { return f.id === id; });
     if (feed) {
       feed.isFavorite = !feed.isFavorite;
       renderFeedList(allFeeds);
@@ -558,43 +577,28 @@ function copyFeedLink(url) {
 }
 
 async function loadNews() {
-  const container = document.getElementById("articles-container");
-  const emptyState = document.getElementById("empty-state");
-
+  var container = document.getElementById("articles-container");
+  var emptyState = document.getElementById("empty-state");
   emptyState.classList.add("hidden");
-
-  const skeletonHtml = Array.from({ length: 3 }, () => `
-    <article class="article-card skeleton-article">
-      <div class="article-feed-source"><span class="skeleton-block skeleton-tag"></span></div>
-      <h3 class="article-title"><span class="skeleton-block skeleton-text"></span></h3>
-      <div class="article-meta"><span class="skeleton-block skeleton-text skeleton-text--short"></span></div>
-      <p class="article-summary"><span class="skeleton-block skeleton-text"></span><span class="skeleton-block skeleton-text skeleton-text--medium"></span></p>
-    </article>
-  `).join("");
-
-  container.innerHTML = skeletonHtml;
+  container.innerHTML = skeletonHtml();
 
   try {
-    const url = "/api/news?retentionDays=" + (localStorage.getItem("retentionDays") || "30");
-    console.log("[DEBUG] Fetching:", url);
-    const res = await fetch(url, { credentials: "include" });
-    console.log("[DEBUG] Response status:", res.status);
-    if (!res.ok) {
-      const errText = await res.text();
-      console.error("[DEBUG] Response body:", errText);
-      throw new Error("Failed to fetch news: HTTP " + res.status);
-    }
+    var url = "/api/news?retentionDays=" + (localStorage.getItem("retentionDays") || "30");
+    var res = await fetch(url, { credentials: "include", headers: { "X-Guest-Session": isGuest ? getSessionId() : "" } });
+    if (!res.ok) throw new Error("Failed to fetch news: HTTP " + res.status);
     allArticles = await res.json();
-    console.log("[DEBUG] Articles count:", allArticles.length);
-    if (allArticles.length > 0) console.log("[DEBUG] First article:", JSON.stringify(allArticles[0]));
     renderPage(1);
   } catch (err) {
-    console.error("[DEBUG] Fetch error:", err);
+    console.error("Fetch error:", err);
     container.textContent = "";
     emptyState.textContent = t("feedQuiet");
     emptyState.classList.remove("hidden");
     showToast(t("couldNotLoadArticles"), true);
   }
+}
+
+function skeletonHtml() {
+  return Array.from({ length: 3 }, function () { return '<article class="article-card skeleton-article"><div class="article-feed-source"><span class="skeleton-block skeleton-tag"></span></div><h3 class="article-title"><span class="skeleton-block skeleton-text"></span></h3><div class="article-meta"><span class="skeleton-block skeleton-text skeleton-text--short"></span></div><p class="article-summary"><span class="skeleton-block skeleton-text"></span><span class="skeleton-block skeleton-text skeleton-text--medium"></span></p></article>'; }).join("");
 }
 
 function getFilteredArticles() {
@@ -662,7 +666,7 @@ function renderPage(page) {
 
     const tag = document.createElement("span");
     tag.className = "feed-tag";
-    tag.innerHTML = a.feedTitle;
+    tag.innerHTML = decodeHtml(a.feedTitle);
     tag.style.backgroundColor = getColorForFeed(a.feedTitle);
     source.appendChild(tag);
 
@@ -673,12 +677,12 @@ function renderPage(page) {
     link.href = a.link;
     link.target = "_blank";
     link.rel = "noopener noreferrer";
-    link.innerHTML = a.title;
+    link.innerHTML = decodeHtml(a.title);
     title.appendChild(link);
 
     const meta = document.createElement("div");
     meta.className = "article-meta";
-    meta.textContent = formatDate(a.publishDate);
+    meta.textContent = timeSince(a.publishDate) + " \u2022 " + formatDate(a.publishDate);
 
     const contentWrapper = document.createElement("div");
     contentWrapper.className = "article-content-wrapper";
@@ -689,7 +693,7 @@ function renderPage(page) {
     const summary = document.createElement("div");
     summary.className = "article-summary";
     summary.dir = "auto";
-    summary.innerHTML = a.summary;
+    summary.innerHTML = decodeHtml(a.summary);
     contentWrapper.appendChild(summary);
 
     const audioLink = a.audioUrl || a.AudioUrl;
@@ -705,7 +709,7 @@ function renderPage(page) {
     bookmarkBtn.setAttribute("aria-label", t("bookmarkArticle"));
     bookmarkBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="' + (a.isBookmarked ? 'currentColor' : 'none') + '" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>';
     bookmarkBtn.addEventListener("click", function () {
-      fetch("/api/news/" + a.id + "/bookmark", { method: "PATCH", credentials: "include" })
+      apiFetch("/api/news/" + a.id + "/bookmark", { method: "PATCH" })
         .then(function (res) { return res.json(); })
         .then(function (data) {
           a.isBookmarked = data.isBookmarked;
@@ -745,13 +749,37 @@ function renderPage(page) {
       modal.style.display = "flex";
       body.innerHTML = '<p style="color:var(--color-faint)">' + t("generatingSummary") + '</p>';
 
-      fetch("/api/ai/summary/article/" + a.id + "?lang=" + currentLocale, { credentials: "include" })
-        .then(function (res) { return res.json(); })
+      if (isGuest) {
+        var chatHeaders = { "Content-Type": "application/json" };
+        if (isGuest) chatHeaders["X-Guest-Session"] = getSessionId();
+        fetch("/api/ai/chat?lang=" + currentLocale, {
+          method: "POST", headers: chatHeaders,
+          body: JSON.stringify({ message: "Summarize this article:\n\nTitle: " + a.title + "\n\n" + stripTags(a.summary) }),
+          credentials: "include"
+        })
+          .then(function (res) {
+            if (res.status === 429) return res.json().then(function (d) { throw new Error(d.error); });
+            return res.json();
+          })
+          .then(function (data) { body.innerHTML = marked.parse(data.response); updateQuotaUI(); })
+          .catch(function (err) { body.innerHTML = '<p style="color:var(--color-error)">' + (err.message || 'Failed to generate summary.') + '</p>'; })
+          .finally(function () { deepBtn.disabled = false; deepBtn.classList.remove("btn-refreshing"); });
+        return;
+      }
+
+      var summaryHeaders = { "Content-Type": "application/json" };
+      if (isGuest) summaryHeaders["X-Guest-Session"] = getSessionId();
+      fetch("/api/ai/summary/article/" + a.id + "?lang=" + currentLocale, { credentials: "include", headers: summaryHeaders })
+        .then(function (res) {
+          if (res.status === 429) return res.json().then(function (d) { throw new Error(d.error); });
+          return res.json();
+        })
         .then(function (data) {
           body.innerHTML = marked.parse(data.summary);
+          updateQuotaUI();
         })
-        .catch(function () {
-          body.innerHTML = '<p style="color:var(--color-error)">Failed to generate summary.</p>';
+        .catch(function (err) {
+          body.innerHTML = '<p style="color:var(--color-error)">' + (err.message || 'Failed to generate summary.') + '</p>';
         })
         .finally(function () {
           deepBtn.disabled = false;
@@ -788,6 +816,10 @@ function renderPage(page) {
   document.getElementById("articles-container").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
+function showFeatureGate() {
+  document.getElementById("feature-gate-modal").style.display = "flex";
+}
+
 function setupAddFeedForm() {
   const form = document.getElementById("add-feed-form");
   const textarea = document.getElementById("feed-url");
@@ -814,7 +846,7 @@ function setupAddFeedForm() {
     btn.textContent = t("processingBatch");
 
     try {
-      const res = await fetch("/api/feeds/batch", {
+      const res = await apiFetch("/api/feeds/batch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ urls: urls, username: username, password: password }),
@@ -850,29 +882,94 @@ function setupAddFeedForm() {
   });
 }
 
+var isGuest = false;
+var guestSessionId = "";
+
+function getSessionId() {
+  if (!guestSessionId) {
+    guestSessionId = localStorage.getItem("session_id") || "";
+    if (!guestSessionId) {
+      guestSessionId = crypto.randomUUID ? crypto.randomUUID() : "sess-" + Date.now() + "-" + Math.random().toString(36).slice(2,10);
+      localStorage.setItem("session_id", guestSessionId);
+    }
+  }
+  return guestSessionId;
+}
+
+async function updateQuotaUI() {
+  var el = document.getElementById("ai-quota-counter");
+  if (!el) return;
+  try {
+    var res = await apiFetch("/api/quota");
+    if (!res.ok) return;
+    var data = await res.json();
+    el.style.display = "";
+    el.textContent = "AI: " + data.used + "/" + data.limit;
+    if (data.used >= data.limit) el.classList.add("quota-exhausted");
+    else el.classList.remove("quota-exhausted");
+  } catch {
+    el.style.display = "none";
+  }
+}
+
+function apiFetch(url, options) {
+  options = options || {};
+  options.credentials = "include";
+  options.headers = options.headers || {};
+  if (isGuest) options.headers["X-Guest-Session"] = getSessionId();
+  else delete options.headers["X-Guest-Session"];
+  return fetch(url, options).then(function (res) {
+    if (!res.ok) {
+      return res.text().then(function (text) {
+        try { var j = JSON.parse(text); throw new Error(j.error || j.message || "Request failed (" + res.status + ")"); }
+        catch (e) { if (e.message !== (j && j.error ? j.error : "")) throw e; throw new Error(text.substring(0, 100) || "Request failed (" + res.status + ")"); }
+      });
+    }
+    return res;
+  });
+}
+
 async function checkAuth() {
   try {
     var res = await fetch("/api/auth/me", { credentials: "include" });
     if (res.ok) {
       var data = await res.json();
-      document.getElementById("user-email").textContent = data.email || "";
-      document.getElementById("btn-logout").style.display = "";
+      isGuest = data.isGuest === true;
+      if (!isGuest) {
+        document.getElementById("user-email").textContent = data.email || "";
+        document.getElementById("btn-logout").style.display = "";
+        document.getElementById("btn-signin").style.display = "none";
+      } else {
+        document.getElementById("user-email").textContent = "Guest";
+        document.getElementById("btn-logout").style.display = "none";
+        document.getElementById("btn-signin").style.display = "";
+      }
       setupAuthorized();
-      return;
-    }
-    if (res.status === 401 || res.status === 403) {
-      window.location.href = "/welcome.html";
+      updateQuotaUI();
       return;
     }
   } catch (e) {
     console.error("Auth check failed:", e);
   }
-  window.location.href = "/welcome.html";
+  isGuest = true;
+  document.getElementById("user-email").textContent = "Guest";
+  document.getElementById("btn-logout").style.display = "none";
+  document.getElementById("btn-signin").style.display = "";
+  setupAuthorized();
+  updateQuotaUI();
 }
 
 function setupAuthorized() {
+  document.getElementById("auth-loading").style.display = "none";
+  document.getElementById("app-layout").style.display = "";
+  updateQuotaUI();
   document.getElementById("hamburger-btn").addEventListener("click", function () {
     document.querySelector(".sidebar").classList.toggle("open");
+    document.getElementById("sidebar-backdrop").classList.toggle("open");
+  });
+  document.getElementById("sidebar-backdrop").addEventListener("click", function () {
+    document.querySelector(".sidebar").classList.remove("open");
+    this.classList.remove("open");
   });
   loadFeeds();
   setupAddFeedForm();
@@ -897,14 +994,34 @@ function setupBriefing() {
     content.textContent = "Generating your briefing...";
 
     try {
-      var res = await fetch("/api/news/daily-briefing?lang=" + currentLocale, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to generate briefing");
-      var data = await res.json();
-      content.innerHTML = marked.parse(data.summary);
+      var res;
+      if (isGuest) {
+        var top = allArticles.slice(0, 5).map(function(a) { return decodeHtml(a.title) + ": " + decodeHtml(a.summary); }).join("\n\n");
+        var briefingHeaders = { "Content-Type": "application/json" };
+        briefingHeaders["X-Guest-Session"] = getSessionId();
+        res = await fetch("/api/ai/chat?lang=" + currentLocale, {
+          method: "POST", headers: briefingHeaders,
+          body: JSON.stringify({ message: "Generate a daily news briefing from these articles:\n\n" + top }),
+          credentials: "include"
+        });
+        if (res.status === 429) { var qd = await res.json(); showFeatureGate(); return; }
+        if (!res.ok) throw new Error("Failed");
+        var d = await res.json();
+        content.innerHTML = marked.parse(d.response);
+        updateQuotaUI();
+      } else {
+        res = await fetch("/api/news/daily-briefing?lang=" + currentLocale, { credentials: "include" });
+        if (res.status === 429) { var qdata = await res.json(); content.textContent = qdata.error; return; }
+        if (!res.ok) throw new Error("Failed to generate briefing");
+        var data = await res.json();
+        content.innerHTML = marked.parse(data.summary);
+        updateQuotaUI();
+      }
     } catch (err) {
       content.textContent = "Could not generate briefing. Please try again.";
     } finally {
       btn.disabled = false;
+      btn.classList.remove("btn-refreshing");
       btn.classList.remove("btn-refreshing");
     }
   });
@@ -947,12 +1064,19 @@ function setupChat() {
     input.value = "";
 
     try {
+      var chatHeaders = { "Content-Type": "application/json" };
+      if (isGuest) chatHeaders["X-Guest-Session"] = getSessionId();
       var res = await fetch("/api/chat?lang=" + currentLocale, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: chatHeaders,
         body: JSON.stringify({ message: msg }),
         credentials: "include"
       });
+      if (res.status === 429) {
+        var qdata = await res.json();
+        if (isGuest) { showFeatureGate(); throw new Error(""); }
+        throw new Error(qdata.error || "Rate limit exceeded.");
+      }
       if (!res.ok) throw new Error("Chat failed");
       var data = await res.json();
 
@@ -960,10 +1084,11 @@ function setupChat() {
 
       var aiDiv = document.createElement("div");
       aiDiv.className = "chat-msg chat-msg-ai";
-      aiDiv.textContent = data.response;
+      aiDiv.innerHTML = marked.parse(data.response);
+      updateQuotaUI();
       messages.appendChild(aiDiv);
     } catch (err) {
-      typingDiv.textContent = "Sorry, something went wrong.";
+      typingDiv.textContent = err.message || "Sorry, something went wrong.";
     }
 
     messages.scrollTop = messages.scrollHeight;
@@ -1073,8 +1198,23 @@ document.addEventListener("DOMContentLoaded", () => {
     window.location.href = "/welcome.html";
   });
 
+  var signInBtn = document.getElementById("btn-signin");
+  if (signInBtn) signInBtn.addEventListener("click", function () { window.location.href = "/welcome.html"; });
+
+  var gateModal = document.getElementById("feature-gate-modal");
+  if (gateModal) {
+    gateModal.querySelector(".modal-close").addEventListener("click", function () { gateModal.style.display = "none"; });
+    gateModal.querySelector(".modal-backdrop").addEventListener("click", function () { gateModal.style.display = "none"; });
+  }
+
   document.getElementById("read-modal").querySelector(".modal-close").addEventListener("click", closeModal);
   document.getElementById("read-modal").querySelector(".modal-backdrop").addEventListener("click", closeModal);
+});
+
+window.addEventListener("pageshow", function (event) {
+  if (event.persisted) {
+    checkAuth();
+  }
 });
 
 function filterSidebarFeeds() {

@@ -56,7 +56,7 @@
 /* ═══════════════ RESET ═══════════════ */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html { font-size: 16px; -webkit-font-smoothing: antialiased; color-scheme: dark; }
-body { font-family: var(--font); background: var(--bg-deep); color: var(--text-primary); line-height: 1.6; min-height: 100vh; }
+body { font-family: var(--font); background: var(--bg-deep); color: var(--text-primary); line-height: 1.6; min-height: 100vh; overflow-x: hidden; }
 a { color: inherit; text-decoration: none; }
 ul { list-style: none; }
 button { font-family: inherit; cursor: pointer; }
@@ -72,8 +72,10 @@ img { max-width: 100%; }
 /* ═══════════════ SIDEBAR ═══════════════ */
 .sidebar-header { display: flex; align-items: center; justify-content: space-between; padding: 1.25rem 1rem 0.75rem; border-bottom: 1px solid var(--border); }
 .sidebar-header h2 { font-size: 0.8125rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
-.sidebar-user { padding: 0.625rem 1rem; border-bottom: 1px solid var(--border); }
-.user-email { font-size: 0.75rem; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.sidebar-user { padding: 0.625rem 1rem; border-bottom: 1px solid var(--border); overflow: hidden; }
+.ai-quota-counter { font-size: 0.68rem; color: var(--text-muted); margin-top: 0.25rem; }
+.ai-quota-counter.quota-exhausted { color: var(--color-error); font-weight: 600; }
+.user-email { font-size: 0.75rem; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; max-width: 100%; }
 .header-actions { display: flex; align-items: center; gap: 0.375rem; flex-shrink: 0; }
 
 .theme-toggle, .lang-toggle { background: none; border: none; color: var(--text-muted); padding: 0.375rem; border-radius: var(--radius-sm); cursor: pointer; transition: var(--transition); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
@@ -278,21 +280,26 @@ img { max-width: 100%; }
 .chat-input-area input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
 
 /* ═══════════════ MARKDOWN RENDERING ═══════════════ */
-.briefing-content ul, .ai-summary-box ul, #deep-summary-body ul, #modal-body ul { padding-inline-start: 1.5rem; margin: 0.5rem 0; }
-.briefing-content li, .ai-summary-box li, #deep-summary-body li, #modal-body li { margin-bottom: 0.25rem; }
-.briefing-content p, .ai-summary-box p, #deep-summary-body p, #modal-body p { margin: 0.5rem 0; }
-.briefing-content strong, .ai-summary-box strong, #deep-summary-body strong, #modal-body strong { font-weight: 600; color: var(--text-heading); }
-.briefing-content hr, .ai-summary-box hr, #deep-summary-body hr, #modal-body hr { border: none; border-top: 1px solid var(--border); margin: 0.75rem 0; }
-.briefing-content a, .ai-summary-box a, #deep-summary-body a, #modal-body a { color: var(--accent); text-decoration: underline; }
-.briefing-content table, .ai-summary-box table, #deep-summary-body table, #modal-body table { width: 100%; border-collapse: collapse; margin: 0.5rem 0; }
-.briefing-content td, .ai-summary-box td, #deep-summary-body td, #modal-body td,
-.briefing-content th, .ai-summary-box th, #deep-summary-body th, #modal-body th { border: 1px solid var(--border); padding: 0.4rem 0.5rem; font-size: 0.78rem; }
+.briefing-content ul, .ai-summary-box ul, #deep-summary-body ul, #modal-body ul, .chat-msg-ai ul { padding-inline-start: 1.5rem; margin: 0.5rem 0; }
+.briefing-content li, .ai-summary-box li, #deep-summary-body li, #modal-body li, .chat-msg-ai li { margin-bottom: 0.25rem; }
+.briefing-content p, .ai-summary-box p, #deep-summary-body p, #modal-body p, .chat-msg-ai p { margin: 0.5rem 0; }
+.briefing-content strong, .ai-summary-box strong, #deep-summary-body strong, #modal-body strong, .chat-msg-ai strong { font-weight: 600; color: var(--text-heading); }
+.briefing-content hr, .ai-summary-box hr, #deep-summary-body hr, #modal-body hr, .chat-msg-ai hr { border: none; border-top: 1px solid var(--border); margin: 0.75rem 0; }
+.briefing-content a, .ai-summary-box a, #deep-summary-body a, #modal-body a, .chat-msg-ai a { color: var(--accent); text-decoration: underline; }
+.briefing-content table, .ai-summary-box table, #deep-summary-body table, #modal-body table, .chat-msg-ai table { width: 100%; border-collapse: collapse; margin: 0.5rem 0; }
+.briefing-content td, .ai-summary-box td, #deep-summary-body td, #modal-body td, .chat-msg-ai td,
+.briefing-content th, .ai-summary-box th, #deep-summary-body th, #modal-body th, .chat-msg-ai th { border: 1px solid var(--border); padding: 0.4rem 0.5rem; font-size: 0.78rem; }
 
 /* ═══════════════ RESPONSIVE ═══════════════ */
 @media (max-width: 768px) {
   .hamburger-btn { display: inline-flex; }
-  .sidebar { position: fixed; left: -100%; top: 0; height: 100vh; z-index: 50; transition: left var(--transition); width: 100%; max-width: 340px; }
-  .sidebar.open { left: 0; box-shadow: var(--shadow-lg); }
+  .sidebar {
+    position: fixed; left: 0; top: 0; height: 100vh; z-index: 50;
+    width: 100%; max-width: 340px;
+    transform: translateX(-100%);
+    transition: transform var(--transition);
+  }
+  .sidebar.open { transform: translateX(0); box-shadow: var(--shadow-lg); }
   .main { max-width: 100%; }
   .main-header { padding: 0.8rem 1rem; }
   .articles-container { padding: 0.7rem; }
@@ -316,6 +323,33 @@ img { max-width: 100%; }
 [dir="rtl"] .chat-widget { right: auto; left: 1.5rem; }
 [dir="rtl"] .chat-panel { right: auto; left: 0; }
 @media (max-width: 768px) {
-  [dir="rtl"] .sidebar { left: auto; right: -100%; }
-  [dir="rtl"] .sidebar.open { left: auto; right: 0; }
+  [dir="rtl"] .sidebar { left: auto; right: 0; transform: translateX(100%); }
+  [dir="rtl"] .sidebar.open { left: auto; right: 0; transform: translateX(0); }
+}
+
+.auth-loading {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-deep);
+}
+.auth-spinner {
+  width: 48px; height: 48px;
+  border: 4px solid rgba(129,140,248,0.2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.article-summary, .ai-summary-box, .briefing-content, #deep-summary-body, #modal-body,
+.feed-name, .chat-msg {
+  overflow-wrap: break-word; word-break: break-word;
+}
+
+@media (max-width: 768px) {
+  .sidebar-backdrop {
+    position: fixed; inset: 0; z-index: 49;
+    background: rgba(0,0,0,0.5);
+    display: none;
+  }
+  .sidebar-backdrop.open { display: block; }
 }

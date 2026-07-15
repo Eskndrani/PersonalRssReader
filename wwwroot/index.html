@@ -2,17 +2,20 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Personal RSS Reader</title>
   <link rel="stylesheet" href="/site.css">
 </head>
 <body>
+  <div id="auth-loading" class="auth-loading">
+    <div class="auth-spinner"></div>
+  </div>
+  <div class="layout" id="app-layout" style="display: none;">
 
-  <div class="layout">
-
-    <aside class="sidebar">
+    <aside class="sidebar" id="app-sidebar">
       <div class="sidebar-user">
         <span id="user-email" class="user-email"></span>
+        <div id="ai-quota-counter" class="ai-quota-counter" style="display:none;"></div>
       </div>
       <div class="sidebar-header">
         <h2 data-i18n="subscriptions">Subscriptions</h2>
@@ -35,6 +38,7 @@
             </svg>
           </button>
           <button id="btn-logout" class="header-logout" style="display: none;" data-i18n="logout">Logout</button>
+          <button id="btn-signin" class="header-logout" style="display: none;">Sign In</button>
         </div>
       </div>
 
@@ -85,7 +89,7 @@
 
     <main class="main">
       <div class="main-header">
-        <button id="hamburger-btn" class="hamburger-btn" aria-label="Toggle menu" style="display: none;">
+        <button id="hamburger-btn" class="hamburger-btn" aria-label="Toggle menu">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
           </svg>
@@ -153,6 +157,19 @@
       </div>
     </main>
 
+  </div>
+
+  <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
+
+  <div id="feature-gate-modal" class="modal" style="display: none;">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content" style="max-width:400px;text-align:center">
+      <button class="modal-close">&times;</button>
+      <h2 style="margin-bottom:0.5rem">Unlock This Feature</h2>
+      <p style="color:var(--text-secondary);margin-bottom:1.5rem">Sign in to add custom feeds, save favorites, and use AI summaries.</p>
+      <a href="/api/auth/google-login" class="btn btn-primary" style="width:100%;justify-content:center">Sign in with Google</a>
+      <p style="margin-top:0.75rem;font-size:0.8rem"><a href="/login.html" style="color:var(--accent)">Sign in with Email</a></p>
+    </div>
   </div>
 
   <div id="toast-container" class="toast-container" aria-live="polite"></div>

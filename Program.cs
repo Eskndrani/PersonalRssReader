@@ -6,8 +6,10 @@ using Microsoft.AspNetCore.Authentication.OAuth;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using PersonalRssReader.Services;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -61,6 +63,12 @@ builder.Services.AddAuthentication()
                 }
             }
         };
+        options.Events.OnRemoteFailure = ctx =>
+        {
+            ctx.Response.Redirect("/welcome.html?error=oauth_failed");
+            ctx.HandleResponse();
+            return Task.CompletedTask;
+        };
     });
 
 builder.Services.ConfigureApplicationCookie(options =>
@@ -83,8 +91,6 @@ builder.Services.AddHttpClient("FeedReader", client =>
     client.Timeout = TimeSpan.FromSeconds(30);
 });
 
-System.Net.ServicePointManager.SecurityProtocol = System.Net.SecurityProtocolType.Tls12 | System.Net.SecurityProtocolType.Tls13;
-
 builder.Services.ConfigureHttpJsonOptions(options =>
 {
     options.SerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
@@ -93,11 +99,35 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 builder.Services.AddScoped<FeedArticleService>();
 builder.Services.AddScoped<IAiService, AiService>();
 builder.Services.AddHostedService<FeedRefreshWorker>();
+builder.Services.AddHostedService<GuestCleanupService>();
 builder.Services.AddSingleton<IEmailService, SmtpEmailService>();
 
 builder.Services.AddHttpClient("AiClient", client =>
 {
     client.Timeout = TimeSpan.FromSeconds(60);
+});
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddPolicy("AiEndpointPolicy", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.User.FindFirstValue(ClaimTypes.NameIdentifier)
+                         ?? context.Connection.RemoteIpAddress?.ToString() ?? "anon",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 5,
+                Window = TimeSpan.FromMinutes(1),
+                QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
+                QueueLimit = 0
+            }));
+
+    options.OnRejected = async (context, ct) =>
+    {
+        context.HttpContext.Response.StatusCode = 429;
+        context.HttpContext.Response.ContentType = "application/json";
+        await context.HttpContext.Response.WriteAsync(
+            "{\"error\":\"Too many requests. Please slow down.\"}", ct);
+    };
 });
 
 builder.Services.AddEndpointsApiExplorer();
@@ -119,26 +149,37 @@ using (var scope = app.Services.CreateScope())
 
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.UseDeveloperExceptionPage();
 
-app.MapGet("/", (HttpContext http) =>
-{
-    if (http.User.Identity?.IsAuthenticated == true)
-        return Results.Redirect("/index.html");
-    return Results.Redirect("/welcome.html");
-});
+app.MapGet("/", () => Results.Redirect("/index.html"));
 
 app.MapIdentityApi<IdentityUser>();
+
+static string GetUserKey(HttpContext http)
+{
+    var uid = http.User.FindFirstValue(ClaimTypes.NameIdentifier);
+    if (!string.IsNullOrEmpty(uid)) return uid;
+    return "guest-" + (http.Request.Headers["X-Guest-Session"].FirstOrDefault() ?? "anon");
+}
 
 app.MapGet("/api/auth/me", async (HttpContext http) =>
 {
     var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier);
-    if (userId is null) return Results.Unauthorized();
-    return Results.Ok(new { userId, email = http.User.Identity?.Name });
-}).RequireAuthorization();
+    if (userId is null) return Results.Ok(new { userId = "", email = "", isGuest = true });
+    return Results.Ok(new { userId, email = http.User.Identity?.Name, isGuest = false });
+});
+
+app.MapGet("/api/quota", async (AppDbContext db, HttpContext http) =>
+{
+    var (userId, limit, _) = GetQuotaParams(http);
+    var today = DateOnly.FromDateTime(DateTime.UtcNow);
+    var usage = await db.AiUsage.FirstOrDefaultAsync(u => u.UserId == userId && u.Date == today);
+    return Results.Ok(new { used = usage?.RequestCount ?? 0, limit });
+});
 
 app.MapPost("/api/auth/logout", async (SignInManager<IdentityUser> signInManager) =>
 {
@@ -248,33 +289,22 @@ app.MapPost("/api/auth/resend-verification", async (
 
 app.MapGet("/api/feeds", async (AppDbContext db, HttpContext http) =>
 {
-    var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
-    var feeds = await db.Feeds
-        .Where(f => f.UserId == userId)
-        .OrderBy(f => f.Title)
-        .Select(f => new
-        {
-            f.Id,
-            f.Url,
-            f.Title,
-            f.Username,
-            f.Password,
-            f.IsFavorite,
-            f.FaviconUrl,
-            ArticleCount = db.Articles.Count(a => a.UserId == userId && a.FeedTitle == f.Title)
-        })
+    var key = GetUserKey(http);
+    var feeds = await db.Feeds.Where(f => f.UserId == key || f.GuestSessionId == key).OrderBy(f => f.Title)
+        .Select(f => new { f.Id, f.Url, f.Title, f.Username, f.Password, f.IsFavorite, f.FaviconUrl, ArticleCount = db.Articles.Count(a => (a.UserId == key || a.GuestSessionId == key) && a.FeedTitle == f.Title) })
         .ToListAsync();
     return Results.Ok(feeds);
-}).RequireAuthorization();
+});
 
 app.MapPost("/api/feeds", async (
     FeedDto dto, AppDbContext db, FeedArticleService articleService,
     HttpContext http, CancellationToken ct) =>
 {
-    var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+    var key = GetUserKey(http);
+    var isGuest = http.User.FindFirstValue(ClaimTypes.NameIdentifier) is null;
     var normalizedUrl = dto.Url.Trim().TrimEnd('/').ToLowerInvariant();
 
-    if (await db.Feeds.AnyAsync(f => f.Url.Trim().TrimEnd('/').ToLower() == normalizedUrl && f.UserId == userId))
+    if (await db.Feeds.AnyAsync(f => (f.UserId == key || f.GuestSessionId == key) && f.Url.Trim().TrimEnd('/').ToLower() == normalizedUrl))
         return Results.Conflict(new { message = "You have already subscribed to this feed." });
 
     string title;
@@ -294,21 +324,24 @@ app.MapPost("/api/feeds", async (
         Title = title,
         Username = dto.Username,
         Password = dto.Password,
-        UserId = userId,
         FaviconUrl = GetFaviconUrl(dto.Url)
     };
+    if (isGuest) feed.GuestSessionId = key;
+    else feed.UserId = key;
+
     db.Feeds.Add(feed);
     await db.SaveChangesAsync();
 
     return Results.Created($"/api/feeds/{feed.Id}", feed);
-}).RequireAuthorization();
+});
 
 app.MapPost("/api/feeds/batch", async (
     BatchFeedDto dto, AppDbContext db, FeedArticleService articleService,
     HttpContext http, CancellationToken ct) =>
 {
-    var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
-    var existingUrls = await db.Feeds.Where(f => f.UserId == userId).Select(f => f.Url).ToListAsync();
+    var key = GetUserKey(http);
+    var isGuest = http.User.FindFirstValue(ClaimTypes.NameIdentifier) is null;
+    var existingUrls = await db.Feeds.Where(f => f.UserId == key || f.GuestSessionId == key).Select(f => f.Url).ToListAsync();
     var existingSet = new HashSet<string>(existingUrls.Select(u => u.Trim().TrimEnd('/').ToLowerInvariant()));
 
     var newUrls = dto.Urls
@@ -330,16 +363,18 @@ app.MapPost("/api/feeds/batch", async (
         try
         {
             var title = await articleService.FetchFeedTitleAsync(url, dto.Username, dto.Password, ct);
-            db.Feeds.Add(new FeedSubscription
+            var feed = new FeedSubscription
             {
                 Id = Guid.NewGuid().ToString(),
                 Url = url,
                 Title = title,
                 Username = dto.Username,
                 Password = dto.Password,
-                UserId = userId,
                 FaviconUrl = GetFaviconUrl(url)
-            });
+            };
+            if (isGuest) feed.GuestSessionId = key;
+            else feed.UserId = key;
+            db.Feeds.Add(feed);
             Interlocked.Increment(ref added);
         }
         catch (Exception)
@@ -358,30 +393,30 @@ app.MapPost("/api/feeds/batch", async (
         await db.SaveChangesAsync();
 
     return Results.Ok(new { Added = added, Failed = failed });
-}).RequireAuthorization();
+});
 
 app.MapPatch("/api/feeds/{id}/favorite", async (string id, AppDbContext db, HttpContext http) =>
 {
-    var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
-    var feed = await db.Feeds.FirstOrDefaultAsync(f => f.Id == id && f.UserId == userId);
+    var key = GetUserKey(http);
+    var feed = await db.Feeds.FirstOrDefaultAsync(f => f.Id == id && (f.UserId == key || f.GuestSessionId == key));
     if (feed is null) return Results.NotFound();
 
     feed.IsFavorite = !feed.IsFavorite;
     await db.SaveChangesAsync();
 
     return Results.Ok(feed);
-}).RequireAuthorization();
+});
 
 app.MapDelete("/api/feeds/{id}", async (string id, AppDbContext db, HttpContext http) =>
 {
-    var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
-    var feed = await db.Feeds.FirstOrDefaultAsync(f => f.Id == id && f.UserId == userId);
+    var key = GetUserKey(http);
+    var feed = await db.Feeds.FirstOrDefaultAsync(f => f.Id == id && (f.UserId == key || f.GuestSessionId == key));
     if (feed is null) return Results.NotFound();
 
     db.Feeds.Remove(feed);
 
     var articlesToDelete = await db.Articles
-        .Where(a => a.UserId == userId && a.FeedTitle == feed.Title)
+        .Where(a => (a.UserId == key || a.GuestSessionId == key) && a.FeedTitle == feed.Title)
         .ToListAsync();
     if (articlesToDelete.Count > 0)
     {
@@ -390,7 +425,9 @@ app.MapDelete("/api/feeds/{id}", async (string id, AppDbContext db, HttpContext 
     }
 
     return Results.NoContent();
-}).RequireAuthorization();
+});
+
+string[] GuestFeedUrls = { "https://feeds.bbci.co.uk/news/rss.xml", "https://feeds.hanselman.com/ScottHanselman", "https://devblogs.microsoft.com/dotnet/feed/" };
 
 app.MapGet("/api/news", async (
     AppDbContext db, FeedArticleService articleService,
@@ -398,8 +435,8 @@ app.MapGet("/api/news", async (
 {
     try
     {
-        var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
-        var feeds = await db.Feeds.Where(f => f.UserId == userId).ToListAsync();
+        var userId = GetUserKey(http);
+        var feeds = await db.Feeds.Where(f => f.UserId == userId || f.GuestSessionId == userId).ToListAsync();
 
         var tasks = feeds.Select(async feed =>
         {
@@ -420,13 +457,17 @@ app.MapGet("/api/news", async (
             .Select(g => g.First())
             .ToList();
 
+        var firstFeed = feeds.FirstOrDefault();
         foreach (var a in parsedArticles)
-            a.UserId = userId;
+        {
+            a.UserId = firstFeed?.UserId;
+            a.GuestSessionId = firstFeed?.GuestSessionId;
+        }
 
         if (parsedArticles.Count > 0)
         {
             var existing = (await db.Articles
-                .Where(a => a.UserId == userId)
+                .Where(a => a.UserId == userId || a.GuestSessionId == userId)
                 .Select(a => a.Link).ToListAsync()).ToHashSet();
 
             var newArticles = parsedArticles.Where(a => !existing.Contains(a.Link)).ToList();
@@ -439,7 +480,7 @@ app.MapGet("/api/news", async (
 
         var cutoff = DateTime.UtcNow.AddDays(-(retentionDays ?? 30));
         var oldArticles = await db.Articles
-            .Where(a => a.UserId == userId && a.PublishDate < cutoff && !a.IsBookmarked)
+            .Where(a => (a.UserId == userId || a.GuestSessionId == userId) && a.PublishDate < cutoff && !a.IsBookmarked)
             .ToListAsync();
         if (oldArticles.Count > 0)
         {
@@ -448,7 +489,7 @@ app.MapGet("/api/news", async (
         }
 
         var articles = await db.Articles
-            .Where(a => a.UserId == userId)
+            .Where(a => a.UserId == userId || a.GuestSessionId == userId)
             .OrderByDescending(a => a.PublishDate)
             .Select(a => new Article(a.Id, a.FeedTitle, a.Title, a.Link, a.PublishDate,
                 a.Summary, a.AudioUrl, a.ImageUrl, a.IsBookmarked, a.IsRead))
@@ -462,7 +503,7 @@ app.MapGet("/api/news", async (
         Console.WriteLine(ex.StackTrace);
         return Results.Problem(detail: ex.ToString(), statusCode: 500);
     }
-}).RequireAuthorization();
+});
 
 app.MapPost("/api/refresh-feed", async (
     FeedDto dto, AppDbContext db, FeedArticleService articleService,
@@ -470,8 +511,8 @@ app.MapPost("/api/refresh-feed", async (
 {
     try
     {
-        var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
-        var feed = await db.Feeds.FirstOrDefaultAsync(f => f.Url == dto.Url && f.UserId == userId);
+        var key = GetUserKey(http);
+        var feed = await db.Feeds.FirstOrDefaultAsync(f => f.Url == dto.Url && (f.UserId == key || f.GuestSessionId == key));
         if (feed is null)
             return Results.BadRequest("This feed is not in your subscriptions.");
 
@@ -488,10 +529,13 @@ app.MapPost("/api/refresh-feed", async (
 
         freshArticles = freshArticles.GroupBy(a => a.Link).Select(g => g.First()).ToList();
         foreach (var a in freshArticles)
-            a.UserId = userId;
+        {
+            a.UserId = feed.UserId;
+            a.GuestSessionId = feed.GuestSessionId;
+        }
 
         var existing = (await db.Articles
-            .Where(a => a.UserId == userId)
+            .Where(a => a.UserId == key || a.GuestSessionId == key)
             .Select(a => a.Link).ToListAsync()).ToHashSet();
 
         var newArticles = freshArticles.Where(a => !existing.Contains(a.Link)).ToList();
@@ -503,7 +547,7 @@ app.MapPost("/api/refresh-feed", async (
 
         var cutoff = DateTime.UtcNow.AddDays(-(retentionDays ?? 30));
         var oldArticles = await db.Articles
-            .Where(a => a.UserId == userId && a.PublishDate < cutoff && !a.IsBookmarked)
+            .Where(a => (a.UserId == key || a.GuestSessionId == key) && a.PublishDate < cutoff && !a.IsBookmarked)
             .ToListAsync();
         if (oldArticles.Count > 0)
         {
@@ -519,7 +563,7 @@ app.MapPost("/api/refresh-feed", async (
         Console.WriteLine(ex.StackTrace);
         return Results.Problem(detail: ex.ToString(), statusCode: 500);
     }
-}).RequireAuthorization();
+});
 
 app.MapPost("/api/news/summarize", async (SummarizeDto dto) =>
 {
@@ -528,90 +572,93 @@ app.MapPost("/api/news/summarize", async (SummarizeDto dto) =>
     var summary = $"✨ [AI Summary]: {dto.TextContent[..Math.Min(dto.TextContent.Length, 100)]}... This is a simulated summary.";
     var clean = sanitizer.Sanitize(summary);
     return Results.Ok(new { summary = clean });
-}).RequireAuthorization();
+});
 
 app.MapPatch("/api/news/{id}/bookmark", async (int id, AppDbContext db, HttpContext http) =>
 {
-    var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
-    var article = await db.Articles.FirstOrDefaultAsync(a => a.Id == id && a.UserId == userId);
+    var key = GetUserKey(http);
+    var article = await db.Articles.FirstOrDefaultAsync(a => a.Id == id && (a.UserId == key || a.GuestSessionId == key));
     if (article is null) return Results.NotFound();
-
     article.IsBookmarked = !article.IsBookmarked;
     await db.SaveChangesAsync();
-
     return Results.Ok(new { id = article.Id, isBookmarked = article.IsBookmarked });
-}).RequireAuthorization();
+});
 
 app.MapPatch("/api/news/{id}/read", async (int id, AppDbContext db, HttpContext http) =>
 {
-    var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
-    var article = await db.Articles.FirstOrDefaultAsync(a => a.Id == id && a.UserId == userId);
+    var key = GetUserKey(http);
+    var article = await db.Articles.FirstOrDefaultAsync(a => a.Id == id && (a.UserId == key || a.GuestSessionId == key));
     if (article is null) return Results.NotFound();
-
     article.IsRead = true;
     await db.SaveChangesAsync();
 
     return Results.Ok(new { id = article.Id, isRead = article.IsRead });
-}).RequireAuthorization();
+});
 
 app.MapPost("/api/chat", async (
-    ChatRequest request, IAiService ai, HttpContext http,
+    ChatRequest request, IAiService ai, HttpContext http, AppDbContext db,
     [FromQuery] string lang = "en") =>
 {
-    var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
-    var response = await ai.AskQuestionAsync(request.Message, userId, lang);
+    var (quotaKey, limit, errMsg) = GetQuotaParams(http);
+    if (!await CheckAiQuotaAsync(db, quotaKey, limit)) return Results.Json(new { error = errMsg }, statusCode: 429);
+    var userKey = GetUserKey(http);
+    var response = await ai.AskQuestionAsync(request.Message, userKey, lang);
     return Results.Ok(new { response });
-}).RequireAuthorization();
+}).RequireRateLimiting("AiEndpointPolicy");
 
 app.MapGet("/api/news/daily-briefing", async (
     AppDbContext db, IAiService ai, HttpContext http,
     [FromQuery] string lang = "en") =>
 {
-    var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
-    var today = DateTime.UtcNow.Date;
+    var (quotaKey, limit, errMsg) = GetQuotaParams(http);
+    if (!await CheckAiQuotaAsync(db, quotaKey, limit)) return Results.Json(new { error = errMsg }, statusCode: 429);
+    var userKey = GetUserKey(http);
     var articles = await db.Articles
-        .Where(a => a.UserId == userId && !a.IsRead && a.PublishDate >= today)
+        .Where(a => (a.UserId == userKey || a.GuestSessionId == userKey) && !a.IsRead)
         .OrderByDescending(a => a.PublishDate)
         .Take(10)
         .ToListAsync();
-
     var summary = await ai.GenerateDailySummaryAsync(articles, lang);
     return Results.Ok(new { summary });
-}).RequireAuthorization();
+}).RequireRateLimiting("AiEndpointPolicy");
 
 app.MapGet("/api/ai/summary", async (
     IAiService ai, AppDbContext db, HttpContext http,
     [FromQuery] string lang = "en") =>
 {
-    var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
-    var today = DateTime.UtcNow.Date;
+    var (quotaKey, limit, errMsg) = GetQuotaParams(http);
+    if (!await CheckAiQuotaAsync(db, quotaKey, limit)) return Results.Json(new { error = errMsg }, statusCode: 429);
+    var userKey = GetUserKey(http);
     var articles = await db.Articles
-        .Where(a => a.UserId == userId && !a.IsRead && a.PublishDate >= today)
+        .Where(a => (a.UserId == userKey || a.GuestSessionId == userKey) && !a.IsRead)
         .OrderByDescending(a => a.PublishDate)
         .Take(15)
         .ToListAsync();
-
     var summary = await ai.GenerateDailySummaryAsync(articles, lang);
     return Results.Ok(new { summary });
-}).RequireAuthorization();
+}).RequireRateLimiting("AiEndpointPolicy");
 
 app.MapPost("/api/ai/chat", async (
-    ChatRequest request, IAiService ai, HttpContext http,
+    ChatRequest request, IAiService ai, HttpContext http, AppDbContext db,
     [FromQuery] string lang = "en") =>
 {
-    var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
-    var response = await ai.AskQuestionAsync(request.Message, userId, lang);
+    var (quotaKey, limit, errMsg) = GetQuotaParams(http);
+    if (!await CheckAiQuotaAsync(db, quotaKey, limit)) return Results.Json(new { error = errMsg }, statusCode: 429);
+    var userKey = GetUserKey(http);
+    var response = await ai.AskQuestionAsync(request.Message, userKey, lang);
     return Results.Ok(new { response });
-}).RequireAuthorization();
+}).RequireRateLimiting("AiEndpointPolicy");
 
 app.MapGet("/api/ai/summary/article/{id:int}", async (
-    int id, IAiService ai, HttpContext http,
+    int id, IAiService ai, AppDbContext db, HttpContext http,
     [FromQuery] string lang = "en") =>
 {
-    var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
-    var summary = await ai.SummarizeArticleAsync(id, userId, lang);
+    var (quotaKey, limit, errMsg) = GetQuotaParams(http);
+    if (!await CheckAiQuotaAsync(db, quotaKey, limit)) return Results.Json(new { error = errMsg }, statusCode: 429);
+    var userKey = GetUserKey(http);
+    var summary = await ai.SummarizeArticleAsync(id, userKey, lang);
     return Results.Ok(new { summary });
-}).RequireAuthorization();
+}).RequireRateLimiting("AiEndpointPolicy");
 
 app.MapGet("/api/hacker", () =>
 {
@@ -637,6 +684,31 @@ static string? GetFaviconUrl(string feedUrl)
     return $"https://www.google.com/s2/favicons?domain={uri.Host}&sz=64";
 }
 
+static (string userId, int limit, string errMsg) GetQuotaParams(HttpContext http)
+{
+    var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier);
+    if (userId is not null) return (userId, 15, "Daily AI quota of 15 requests exceeded. Please try again tomorrow.");
+    var ip = http.Connection.RemoteIpAddress?.ToString() ?? "anon";
+    if (ip is "::1" or "127.0.0.1") return ("guest-local", 999, "");
+    return ("guest-" + ip, 3, "Guest quota reached. Please sign in to continue using AI.");
+}
+
+static async Task<bool> CheckAiQuotaAsync(AppDbContext db, string userId, int limit = 15)
+{
+    var today = DateOnly.FromDateTime(DateTime.UtcNow);
+    var usage = await db.AiUsage.FirstOrDefaultAsync(u => u.UserId == userId && u.Date == today);
+    if (usage is null)
+    {
+        db.AiUsage.Add(new UserAiUsage { UserId = userId, Date = today, RequestCount = 1 });
+        await db.SaveChangesAsync();
+        return true;
+    }
+    if (usage.RequestCount >= limit) return false;
+    usage.RequestCount++;
+    await db.SaveChangesAsync();
+    return true;
+}
+
 app.Run();
 
 public class ArticleEntity
@@ -651,7 +723,9 @@ public class ArticleEntity
     public string? ImageUrl { get; set; }
     public bool IsBookmarked { get; set; } = false;
     public bool IsRead { get; set; } = false;
-    public string UserId { get; set; } = "";
+    public string? UserId { get; set; }
+    public string? GuestSessionId { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
 public class FeedSubscription
@@ -662,14 +736,17 @@ public class FeedSubscription
     public string? Username { get; set; }
     public string? Password { get; set; }
     public bool IsFavorite { get; set; } = false;
-    public string UserId { get; set; } = "";
+    public string? UserId { get; set; }
+    public string? GuestSessionId { get; set; }
     public string? FaviconUrl { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
 public class AppDbContext : IdentityDbContext<IdentityUser>
 {
     public DbSet<ArticleEntity> Articles => Set<ArticleEntity>();
     public DbSet<FeedSubscription> Feeds => Set<FeedSubscription>();
+    public DbSet<UserAiUsage> AiUsage => Set<UserAiUsage>();
 
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
@@ -680,19 +757,32 @@ public class AppDbContext : IdentityDbContext<IdentityUser>
         modelBuilder.Entity<ArticleEntity>(entity =>
         {
             entity.HasKey(e => e.Id);
-            entity.HasIndex(e => new { e.UserId, e.Link }).IsUnique();
             entity.HasIndex(e => e.PublishDate);
         });
 
         modelBuilder.Entity<FeedSubscription>(entity =>
         {
             entity.HasKey(e => e.Id);
-            entity.HasIndex(e => new { e.UserId, e.Url }).IsUnique();
+        });
+
+        modelBuilder.Entity<UserAiUsage>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.UserId, e.Date }).IsUnique();
         });
     }
 }
 
+public class UserAiUsage
+{
+    public int Id { get; set; }
+    public string UserId { get; set; } = "";
+    public DateOnly Date { get; set; }
+    public int RequestCount { get; set; }
+}
+
 record FeedDto(string Url, string? Username = null, string? Password = null);
+record ParseUrlRequest(string Url);
 record BatchFeedDto(string[] Urls, string? Username = null, string? Password = null);
 record SummarizeDto(string Link, string TextContent);
 record ChatRequest(string Message);
