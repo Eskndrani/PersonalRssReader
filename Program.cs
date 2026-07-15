@@ -221,6 +221,14 @@ app.MapGet("/api/news", async (AppDbContext db, [FromQuery] int? retentionDays) 
     return Results.Ok(articles);
 });
 
+app.MapPost("/api/news/summarize", async (SummarizeDto dto) =>
+{
+    var sanitizer = new HtmlSanitizer();
+    var summary = await GenerateAiSummaryAsync(dto.TextContent);
+    var clean = sanitizer.Sanitize(summary);
+    return Results.Ok(new { summary = clean });
+});
+
 app.MapPatch("/api/news/{id}/bookmark", async (int id, AppDbContext db) =>
 {
     var article = await db.Articles.FindAsync(id);
@@ -402,6 +410,12 @@ string? GetEnclosureAudioUrl(CodeHollow.FeedReader.FeedItem item)
     return null;
 }
 
+async Task<string> GenerateAiSummaryAsync(string input)
+{
+    await Task.Delay(1500);
+    return "✨ [AI Summary]: " + input[..Math.Min(input.Length, 100)] + "... This is a simulated summary.";
+}
+
 string GenerateLinkId(string feedTitle, string? title, DateTime publishDate)
 {
     var raw = $"{feedTitle}|{title}|{publishDate.Ticks}";
@@ -444,4 +458,5 @@ class AppDbContext : DbContext
 record Feed(string Id, string Url, string Title, string? Username = null, string? Password = null, bool IsFavorite = false);
 record FeedDto(string Url, string? Username = null, string? Password = null);
 record BatchFeedDto(string[] Urls, string? Username = null, string? Password = null);
+record SummarizeDto(string Link, string TextContent);
 record Article(int Id, string FeedTitle, string Title, string Link, DateTime PublishDate, string Summary, string? AudioUrl = null, bool IsBookmarked = false, bool IsRead = false);

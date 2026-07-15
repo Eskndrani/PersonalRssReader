@@ -105,7 +105,12 @@ const translations = {
     showAll: "Show All",
     hideAll: "Hide All",
     bookmarkArticle: "Bookmark article",
-    articleBookmarked: "Article bookmarked"
+    articleBookmarked: "Article bookmarked",
+    bookmarkRemoved: "Bookmark removed",
+    aiSummary: "AI Summary",
+    generatingSummary: "Generating...",
+    allArticles: "All News",
+    bookmarkedArticles: "Bookmarks"
   },
   ar: {
     subscriptions: "الاشتراكات",
@@ -155,7 +160,12 @@ const translations = {
     showAll: "إظهار الكل",
     hideAll: "إخفاء الكل",
     bookmarkArticle: "حفظ المقال",
-    articleBookmarked: "تم حفظ المقال"
+    articleBookmarked: "تم حفظ المقال",
+    bookmarkRemoved: "تم إلغاء الحفظ",
+    aiSummary: "ملخص AI",
+    generatingSummary: "...جار التوليد",
+    allArticles: "كل الأخبار",
+    bookmarkedArticles: "المحفوظات"
   }
 };
 
@@ -220,6 +230,7 @@ function toggleLocale() {
 let allFeeds = [];
 let allArticles = [];
 let currentFeedTab = "all";
+let currentArticleTab = "all";
 let excludedFeedTitles = new Set();
 let searchQuery = "";
 let currentPage = 1;
@@ -505,6 +516,7 @@ async function loadNews() {
 function getFilteredArticles() {
   const q = searchQuery.trim().toLowerCase();
   return allArticles.filter((a) => {
+    if (currentArticleTab === "bookmarks" && !a.isBookmarked) return false;
     if (excludedFeedTitles.has(a.feedTitle)) return false;
     var favTitles = new Set(allFeeds.filter(function (f) { return f.isFavorite; }).map(function (f) { return f.title; }));
     if (currentFeedTab === "fav" && !favTitles.has(a.feedTitle)) return false;
@@ -598,10 +610,11 @@ function renderPage(page) {
           bookmarkBtn.querySelector("svg").setAttribute("fill", data.isBookmarked ? "currentColor" : "none");
           if (data.isBookmarked) {
             card.classList.add("article-bookmarked");
+            showToast(t("articleBookmarked"), false);
           } else {
             card.classList.remove("article-bookmarked");
+            showToast(t("bookmarkRemoved"), false);
           }
-          showToast(t("articleBookmarked"), false);
         });
     });
 
@@ -628,6 +641,35 @@ function renderPage(page) {
     }
 
     articleActions.appendChild(bookmarkBtn);
+
+    var aiBtn = document.createElement("button");
+    aiBtn.className = "btn btn-secondary";
+    aiBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:0.25rem"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>' + t("aiSummary");
+    aiBtn.addEventListener("click", function () {
+      aiBtn.disabled = true;
+      aiBtn.classList.add("btn-refreshing");
+      aiBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:0.25rem"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>' + t("generatingSummary");
+      var textContent = stripTags(a.summary);
+      fetch("/api/news/summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ link: a.link, textContent: textContent })
+      })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          var box = document.createElement("div");
+          box.className = "ai-summary-box";
+          box.innerHTML = data.summary;
+          card.insertBefore(box, articleActions);
+        })
+        .finally(function () {
+          aiBtn.disabled = false;
+          aiBtn.classList.remove("btn-refreshing");
+          aiBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:0.25rem"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>' + t("aiSummary");
+        });
+    });
+    articleActions.appendChild(aiBtn);
+
     articleActions.appendChild(readMore);
     card.appendChild(articleActions);
 
@@ -731,6 +773,15 @@ document.addEventListener("DOMContentLoaded", () => {
       e.target.classList.add("active");
       currentFeedTab = e.target.dataset.tab;
       renderFeedList(allFeeds);
+      renderPage(1);
+    });
+  });
+
+  document.querySelectorAll("[data-article-tab]").forEach(function (btn) {
+    btn.addEventListener("click", function (e) {
+      document.querySelectorAll("[data-article-tab]").forEach(function (b) { b.classList.remove("active"); });
+      e.target.classList.add("active");
+      currentArticleTab = e.target.dataset.articleTab;
       renderPage(1);
     });
   });
