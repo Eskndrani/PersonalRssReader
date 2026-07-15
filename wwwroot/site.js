@@ -123,7 +123,11 @@ const translations = {
     chatTitle: "Chat with your feeds",
     chatPlaceholder: "Ask about your news...",
     deepSummary: "Deep Summary",
-    deepSummaryTitle: "AI Deep Summary"
+    deepSummaryTitle: "AI Deep Summary",
+    placeholderUrl: "Paste one or more URLs (one per line)...",
+    placeholderUsername: "username (optional)",
+    placeholderPassword: "password (optional)",
+    placeholderSearch: "Search subscriptions..."
   },
   ar: {
     subscriptions: "الاشتراكات",
@@ -191,7 +195,11 @@ const translations = {
     chatTitle: "تحدث مع مصادر الأخبار",
     chatPlaceholder: "اسأل عن أخبارك...",
     deepSummary: "ملخص ذكي",
-    deepSummaryTitle: "AI Deep Summary"
+    deepSummaryTitle: "AI Deep Summary",
+    placeholderUrl: "أدخل رابطاً أو أكثر (رابط في كل سطر)...",
+    placeholderUsername: "اسم المستخدم (اختياري)",
+    placeholderPassword: "كلمة المرور (اختياري)",
+    placeholderSearch: "البحث في الاشتراكات..."
   }
 };
 
@@ -225,6 +233,10 @@ function applyTranslations() {
     var key = el.getAttribute("data-i18n-title");
     if (key) el.title = t(key);
   });
+  document.getElementById("feed-url").placeholder = t("placeholderUrl");
+  document.getElementById("feed-username").placeholder = t("placeholderUsername");
+  document.getElementById("feed-password").placeholder = t("placeholderPassword");
+  document.getElementById("feed-search-sidebar").placeholder = t("placeholderSearch");
 }
 
 function initLocale() {
@@ -363,14 +375,18 @@ function closeModal() {
 }
 
 async function loadFeeds() {
-  const list = document.getElementById("feed-list");
+  var list = document.getElementById("feed-list");
+  list.replaceChildren();
 
   try {
-    const res = await fetch("/api/feeds", { credentials: "include" });
-    if (!res.ok) throw new Error("Failed to fetch feeds");
-    const feeds = await res.json();
-    renderFeedList(feeds);
     await loadNews();
+    var res = await fetch("/api/feeds?t=" + Date.now(), {
+      credentials: "include",
+      cache: "no-store"
+    });
+    if (!res.ok) throw new Error("Failed to fetch feeds");
+    var feeds = await res.json();
+    renderFeedList(feeds);
   } catch {
     list.innerHTML =
       '<li class="feed-item" style="color:#9ca3af; padding:1rem 1.25rem;">' + t("noSubscriptions") + '</li>';
@@ -408,7 +424,10 @@ function renderFeedList(feeds) {
       (f) => `
     <li class="feed-item">
       <input type="checkbox" class="feed-toggle" data-id="${escapeAttr(f.id)}" ${excludedFeedTitles.has(f.title) ? "" : "checked"} title="${escapeAttr(t("showHideFeed"))}">
-      <span class="feed-title" title="${escapeAttr(f.title)}">${escapeHtml(f.title)}</span>
+      <label class="feed-label">
+        <span class="feed-name" title="${escapeAttr(f.title)}">${escapeHtml(f.title)}</span>
+        <span class="feed-count">(${f.articleCount || 0})</span>
+      </label>
       <button class="feed-favorite" data-id="${escapeAttr(f.id)}" title="${escapeAttr(t("toggleFavorite"))}">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="${f.isFavorite ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
@@ -457,7 +476,7 @@ async function refreshSingleFeed(url, btn) {
     });
     if (!res.ok) throw new Error("Failed to refresh feed");
     showToast(t("feedRefreshed"), false);
-    await loadNews();
+    await loadFeeds();
   } catch {
     showToast(t("couldNotRefresh"), true);
   } finally {
@@ -914,8 +933,9 @@ function setupRetention() {
   var saved = localStorage.getItem("retentionDays");
   document.getElementById("retention-select").value = saved || "30";
   if (!saved) localStorage.setItem("retentionDays", "30");
-  document.getElementById("retention-select").addEventListener("change", function () {
+  document.getElementById("retention-select").addEventListener("change", async function () {
     localStorage.setItem("retentionDays", this.value);
+    await loadFeeds();
   });
 }
 
@@ -965,7 +985,7 @@ function setupButtons() {
 }
 
 function setupListeners() {
-  document.getElementById("refresh-btn").addEventListener("click", function () { loadNews(); });
+  document.getElementById("refresh-btn").addEventListener("click", function () { loadFeeds(); });
   document.getElementById("jump-page-input").addEventListener("keydown", function (e) {
     if (e.key !== "Enter") return;
     var totalPages = Math.ceil(getFilteredArticles().length / PAGE_SIZE);
@@ -1091,7 +1111,7 @@ function filterSidebarFeeds() {
   var items = document.querySelectorAll("#feed-list .feed-item");
 
   items.forEach(function (item) {
-    var titleSpan = item.querySelector(".feed-title");
+    var titleSpan = item.querySelector(".feed-name");
     if (!titleSpan) return;
 
     var title = (titleSpan.textContent || "").toLowerCase();

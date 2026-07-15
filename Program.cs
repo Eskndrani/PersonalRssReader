@@ -83,7 +83,20 @@ app.MapPost("/api/auth/logout", async (SignInManager<IdentityUser> signInManager
 app.MapGet("/api/feeds", async (AppDbContext db, HttpContext http) =>
 {
     var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
-    var feeds = await db.Feeds.Where(f => f.UserId == userId).OrderBy(f => f.Title).ToListAsync();
+    var feeds = await db.Feeds
+        .Where(f => f.UserId == userId)
+        .OrderBy(f => f.Title)
+        .Select(f => new
+        {
+            f.Id,
+            f.Url,
+            f.Title,
+            f.Username,
+            f.Password,
+            f.IsFavorite,
+            ArticleCount = db.Articles.Count(a => a.UserId == userId && a.FeedTitle == f.Title)
+        })
+        .ToListAsync();
     return Results.Ok(feeds);
 }).RequireAuthorization();
 
@@ -393,7 +406,25 @@ app.MapPost("/api/chat", async (ChatRequest request, IAiService ai, HttpContext 
     return Results.Ok(new { response });
 }).RequireAuthorization();
 
-app.MapGet("/api/ai/summary", async (IAiService ai, AppDbContext db, HttpContext http) =>
+app.MapGet("/api/news/daily-briefing", async (
+    AppDbContext db, IAiService ai, HttpContext http,
+    [FromQuery] string lang = "en") =>
+{
+    var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+    var today = DateTime.UtcNow.Date;
+    var articles = await db.Articles
+        .Where(a => a.UserId == userId && !a.IsRead && a.PublishDate >= today)
+        .OrderByDescending(a => a.PublishDate)
+        .Take(10)
+        .ToListAsync();
+
+    var summary = await ai.GenerateDailySummaryAsync(articles, lang);
+    return Results.Ok(new { summary });
+}).RequireAuthorization();
+
+app.MapGet("/api/ai/summary", async (
+    IAiService ai, AppDbContext db, HttpContext http,
+    [FromQuery] string lang = "en") =>
 {
     var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
     var today = DateTime.UtcNow.Date;
@@ -403,21 +434,25 @@ app.MapGet("/api/ai/summary", async (IAiService ai, AppDbContext db, HttpContext
         .Take(15)
         .ToListAsync();
 
-    var summary = await ai.GenerateDailySummaryAsync(articles);
+    var summary = await ai.GenerateDailySummaryAsync(articles, lang);
     return Results.Ok(new { summary });
 }).RequireAuthorization();
 
-app.MapPost("/api/ai/chat", async (ChatRequest request, IAiService ai, HttpContext http) =>
+app.MapPost("/api/ai/chat", async (
+    ChatRequest request, IAiService ai, HttpContext http,
+    [FromQuery] string lang = "en") =>
 {
     var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
-    var response = await ai.AskQuestionAsync(request.Message, userId);
+    var response = await ai.AskQuestionAsync(request.Message, userId, lang);
     return Results.Ok(new { response });
 }).RequireAuthorization();
 
-app.MapGet("/api/ai/summary/article/{id:int}", async (int id, IAiService ai, HttpContext http) =>
+app.MapGet("/api/ai/summary/article/{id:int}", async (
+    int id, IAiService ai, HttpContext http,
+    [FromQuery] string lang = "en") =>
 {
     var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
-    var summary = await ai.SummarizeArticleAsync(id, userId);
+    var summary = await ai.SummarizeArticleAsync(id, userId, lang);
     return Results.Ok(new { summary });
 }).RequireAuthorization();
 

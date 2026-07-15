@@ -480,12 +480,25 @@ h1, h2, h3 {
   background: var(--color-hover-row);
 }
 
-.feed-item .feed-title {
+.feed-item .feed-label {
+  display: flex;
+  align-items: center;
   flex: 1;
   min-width: 0;
+}
+
+.feed-name {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex-grow: 1;
+}
+
+.feed-count {
+  color: var(--color-faint);
+  font-size: 0.6875rem;
+  font-weight: 400;
+  flex-shrink: 0;
 }
 
 .feed-item .feed-delete {
@@ -879,6 +892,16 @@ h1, h2, h3 {
 
 .article-summary > * {
   margin: 0;
+}
+
+.article-summary a,
+.ai-summary-box a,
+.briefing-content a,
+#deep-summary-body a,
+#modal-body a {
+  color: #0056b3;
+  text-decoration: underline;
+  font-weight: 500;
 }
 
 .audio-player-wrapper {
