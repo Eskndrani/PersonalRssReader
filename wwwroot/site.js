@@ -119,7 +119,9 @@ const translations = {
     logInHere: "Log in here",
     logout: "Logout",
     dailyBriefing: "Daily Briefing",
-    dismiss: "Dismiss"
+    dismiss: "Dismiss",
+    chatTitle: "Chat with your feeds",
+    chatPlaceholder: "Ask about your news..."
   },
   ar: {
     subscriptions: "الاشتراكات",
@@ -183,7 +185,9 @@ const translations = {
     logInHere: "سجل الدخول هنا",
     logout: "تسجيل الخروج",
     dailyBriefing: "الموجز اليومي",
-    dismiss: "إغلاق"
+    dismiss: "إغلاق",
+    chatTitle: "تحدث مع مصادر الأخبار",
+    chatPlaceholder: "اسأل عن أخبارك..."
   }
 };
 
@@ -811,6 +815,7 @@ function setupAuthorized() {
   setupButtons();
   setupListeners();
   setupBriefing();
+  setupChat();
 }
 
 function setupBriefing() {
@@ -839,6 +844,67 @@ function setupBriefing() {
 
   document.getElementById("btn-dismiss-briefing").addEventListener("click", function () {
     document.getElementById("briefing-card").style.display = "none";
+  });
+}
+
+function setupChat() {
+  document.getElementById("chat-widget").style.display = "";
+
+  var panel = document.querySelector(".chat-panel");
+  var messages = document.getElementById("chat-messages");
+
+  document.getElementById("btn-chat-toggle").addEventListener("click", function () {
+    panel.style.display = panel.style.display === "none" ? "" : "none";
+  });
+
+  document.querySelector(".chat-close-btn").addEventListener("click", function () {
+    panel.style.display = "none";
+  });
+
+  async function sendMessage() {
+    var input = document.getElementById("chat-input");
+    var msg = input.value.trim();
+    if (!msg) return;
+
+    var userDiv = document.createElement("div");
+    userDiv.className = "chat-msg chat-msg-user";
+    userDiv.textContent = msg;
+    messages.appendChild(userDiv);
+
+    var typingDiv = document.createElement("div");
+    typingDiv.className = "chat-msg-typing";
+    typingDiv.textContent = "Thinking...";
+    messages.appendChild(typingDiv);
+    messages.scrollTop = messages.scrollHeight;
+
+    input.value = "";
+
+    try {
+      var res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: msg }),
+        credentials: "include"
+      });
+      if (!res.ok) throw new Error("Chat failed");
+      var data = await res.json();
+
+      typingDiv.remove();
+
+      var aiDiv = document.createElement("div");
+      aiDiv.className = "chat-msg chat-msg-ai";
+      aiDiv.textContent = data.response;
+      messages.appendChild(aiDiv);
+    } catch (err) {
+      typingDiv.textContent = "Sorry, something went wrong.";
+    }
+
+    messages.scrollTop = messages.scrollHeight;
+  }
+
+  document.getElementById("btn-chat-send").addEventListener("click", sendMessage);
+  document.getElementById("chat-input").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") sendMessage();
   });
 }
 

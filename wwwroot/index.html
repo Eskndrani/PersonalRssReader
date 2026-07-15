@@ -179,6 +179,25 @@
     </div>
   </div>
 
+  <div id="chat-widget" class="chat-widget" style="display: none;">
+    <button id="btn-chat-toggle" class="chat-toggle-btn" title="Chat with your feeds">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+      </svg>
+    </button>
+    <div class="chat-panel" style="display: none;">
+      <div class="chat-header">
+        <span data-i18n="chatTitle">Chat with your feeds</span>
+        <button class="chat-close-btn">&times;</button>
+      </div>
+      <div id="chat-messages" class="chat-messages"></div>
+      <div class="chat-input-area">
+        <input type="text" id="chat-input" placeholder="Ask about your news..." data-i18n-placeholder="chatPlaceholder">
+        <button id="btn-chat-send" class="btn btn-primary">Send</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/site.js"></script>
 </body>
 </html>

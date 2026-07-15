@@ -372,6 +372,13 @@ app.MapGet("/api/news/daily-briefing", async (
     return Results.Ok(new { summary });
 }).RequireAuthorization();
 
+app.MapPost("/api/chat", async (ChatRequest request, IAiService ai, HttpContext http) =>
+{
+    var userId = http.User.FindFirstValue(ClaimTypes.NameIdentifier)!;
+    var response = await ai.AskQuestionAsync(request.Message, userId);
+    return Results.Ok(new { response });
+}).RequireAuthorization();
+
 app.MapGet("/api/hacker", () =>
 {
     var xml = @"<?xml version=""1.0"" encoding=""UTF-8"" ?>
@@ -447,4 +454,5 @@ public class AppDbContext : IdentityDbContext<IdentityUser>
 record FeedDto(string Url, string? Username = null, string? Password = null);
 record BatchFeedDto(string[] Urls, string? Username = null, string? Password = null);
 record SummarizeDto(string Link, string TextContent);
+record ChatRequest(string Message);
 record Article(int Id, string FeedTitle, string Title, string Link, DateTime PublishDate, string Summary, string? AudioUrl = null, string? ImageUrl = null, bool IsBookmarked = false, bool IsRead = false);
