@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign Up — Personal RSS Reader</title>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#0f172a;color:#f1f5f9;min-height:100vh;display:flex;align-items:center;justify-content:center;-webkit-font-smoothing:antialiased}
+    .card{background:#1e293b;border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:2rem;width:100%;max-width:380px;box-shadow:0 8px 30px rgba(0,0,0,0.4)}
+    h1{font-size:1.4rem;font-weight:800;margin-bottom:0.3rem;text-align:center}
+    p{font-size:0.85rem;color:#94a3b8;text-align:center;margin-bottom:1.5rem}
+    label{display:block;font-size:0.78rem;font-weight:500;color:#94a3b8;margin-bottom:0.3rem}
+    input{width:100%;padding:0.65rem 0.75rem;border:1px solid rgba(255,255,255,0.12);border-radius:9999px;font-size:0.85rem;background:#162032;color:#f1f5f9;margin-bottom:1rem;font-family:inherit}
+    input:focus{outline:none;border-color:#818cf8;box-shadow:0 0 0 3px rgba(129,140,248,0.25)}
+    .btn{width:100%;padding:0.7rem;border-radius:9999px;font-size:0.88rem;font-weight:600;cursor:pointer;border:none;background:#818cf8;color:#fff;transition:all 0.2s ease}
+    .btn:hover{background:#6366f1}
+    .btn:disabled{opacity:0.5;cursor:not-allowed}
+    .error{font-size:0.78rem;color:#f87171;text-align:center;margin-top:0.5rem;display:none}
+    .note{font-size:0.72rem;color:#64748b;text-align:center;margin-top:0.75rem}
+    .back{text-align:center;margin-top:1rem}
+    .back a{font-size:0.82rem;color:#818cf8;text-decoration:none}
+    .back a:hover{text-decoration:underline}
+    .toast{position:fixed;bottom:1.5rem;right:1.5rem;background:#34d399;color:#111;padding:0.75rem 1.25rem;border-radius:8px;font-size:0.78rem;font-weight:500;z-index:1000;animation:toast-in 0.3s ease forwards;display:none}
+    @keyframes toast-in{from{opacity:0;transform:translateY(0.75rem)}to{opacity:1;transform:translateY(0)}}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Create your account</h1>
+    <p>Start your AI-powered reading experience</p>
+    <form id="signup-form">
+      <label for="email">Email</label>
+      <input type="email" id="email" placeholder="you@example.com" required autocomplete="email">
+      <label for="password">Password</label>
+      <input type="password" id="password" placeholder="At least 6 characters" required autocomplete="new-password" minlength="6">
+      <button type="submit" class="btn" id="signup-btn">Create Account</button>
+    </form>
+    <p class="note">A verification link will be sent to your email.</p>
+    <p class="error" id="signup-error"></p>
+    <div class="back"><a href="/welcome.html">&larr; Back to welcome page</a></div>
+  </div>
+  <div id="toast" class="toast"></div>
+  <script>
+    document.getElementById("signup-form").addEventListener("submit", async function(e) {
+      e.preventDefault();
+      var btn = document.getElementById("signup-btn");
+      var err = document.getElementById("signup-error");
+      var pw = document.getElementById("password").value;
+
+      if (pw.length < 6) { err.textContent = "Password must be at least 6 characters."; err.style.display = "block"; return; }
+
+      btn.disabled = true; btn.textContent = "Creating account..."; err.style.display = "none";
+
+      try {
+        var res = await fetch("/api/auth/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: document.getElementById("email").value,
+            password: pw
+          })
+        });
+        var data = await res.json();
+        if (!res.ok) {
+          var msg = data.errors ? data.errors.join(", ") : (data.detail || data.title || "Registration failed.");
+          err.textContent = msg; err.style.display = "block";
+          btn.disabled = false; btn.textContent = "Create Account";
+          return;
+        }
+        document.getElementById("signup-form").style.display = "none";
+        document.querySelector(".note").style.display = "none";
+        var success = document.createElement("div");
+        success.style.textAlign = "center";
+        success.innerHTML = '<div style="font-size:2.5rem;margin-bottom:0.5rem">📧</div><h2>Check your inbox</h2><p style="color:#94a3b8;margin-top:0.5rem">We sent a verification link to <strong>' + document.getElementById("email").value + '</strong>.<br>Click the link to activate your account.</p><p style="font-size:0.72rem;color:#64748b;margin-top:0.5rem">(Check the terminal if running locally)</p><a href="/login.html" class="btn" style="margin-top:1rem">Go to Login</a>';
+        document.querySelector(".card").appendChild(success);
+      } catch(ex) {
+        err.textContent = "Network error. Please try again.";
+        err.style.display = "block";
+        btn.disabled = false; btn.textContent = "Create Account";
+      }
+    });
+  </script>
+</body>
+</html>

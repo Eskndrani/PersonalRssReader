@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verify Email — Personal RSS Reader</title>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#0f172a;color:#f1f5f9;min-height:100vh;display:flex;align-items:center;justify-content:center;-webkit-font-smoothing:antialiased}
+    .card{background:#1e293b;border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:2.5rem;width:100%;max-width:420px;box-shadow:0 8px 30px rgba(0,0,0,0.4);text-align:center}
+    .icon{font-size:3rem;margin-bottom:1rem}
+    h1{font-size:1.3rem;font-weight:800;margin-bottom:0.5rem}
+    p{font-size:0.88rem;color:#94a3b8;line-height:1.6;margin-bottom:1.5rem}
+    .btn{display:inline-block;padding:0.7rem 2rem;border-radius:9999px;font-size:0.88rem;font-weight:600;background:#818cf8;color:#fff;text-decoration:none;transition:all 0.2s ease}
+    .btn:hover{background:#6366f1}
+    .error{color:#f87171;margin-top:1rem;font-size:0.82rem}
+    .spinner{width:40px;height:40px;border:3px solid rgba(129,140,248,0.2);border-top-color:#818cf8;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 1rem}
+    @keyframes spin{to{transform:rotate(360deg)}}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div id="spinner" class="spinner"></div>
+    <div id="content" style="display:none">
+      <div id="success" style="display:none">
+        <div class="icon">✅</div>
+        <h1>Email Verified</h1>
+        <p>Your account is now active. You can log in to start reading.</p>
+        <a href="/login.html" class="btn">Go to Login</a>
+      </div>
+      <div id="error-state" style="display:none">
+        <div class="icon">❌</div>
+        <h1>Verification Failed</h1>
+        <p id="error-msg">The link is invalid or has expired.</p>
+        <a href="/signup.html" class="btn">Try Again</a>
+      </div>
+    </div>
+  </div>
+  <script>
+    (async function() {
+      var params = new URLSearchParams(window.location.search);
+      var userId = params.get("userId");
+      var token = params.get("token");
+
+      if (!userId || !token) {
+        showError("Missing verification parameters.");
+        return;
+      }
+
+      try {
+        var res = await fetch("/api/auth/verify-email?userId=" + encodeURIComponent(userId) + "&token=" + encodeURIComponent(token));
+        var data = await res.json();
+        if (!res.ok) {
+          showError(data.error || "Verification failed.");
+          return;
+        }
+        document.getElementById("spinner").style.display = "none";
+        document.getElementById("content").style.display = "";
+        document.getElementById("success").style.display = "";
+      } catch (ex) {
+        showError("Could not connect to the server. Please try again.");
+      }
+    })();
+
+    function showError(msg) {
+      document.getElementById("spinner").style.display = "none";
+      document.getElementById("content").style.display = "";
+      document.getElementById("error-state").style.display = "";
+      document.getElementById("error-msg").textContent = msg;
+    }
+  </script>
+</body>
+</html>

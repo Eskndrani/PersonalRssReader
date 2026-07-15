@@ -1,5 +1,8 @@
 using System.Security.Claims;
 using System.Text.Json;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Google;
+using Microsoft.AspNetCore.Authentication.OAuth;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc;
@@ -11,14 +14,49 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite("Data Source=articles.db"));
 
-builder.Services.AddIdentityApiEndpoints<IdentityUser>()
+builder.Services.AddIdentityApiEndpoints<IdentityUser>(options =>
+{
+    options.User.RequireUniqueEmail = true;
+})
     .AddEntityFrameworkStores<AppDbContext>();
+
+builder.Services.AddAuthentication()
+    .AddGoogle(options =>
+    {
+        options.ClientId = builder.Configuration["Authentication:Google:ClientId"] ?? "";
+        options.ClientSecret = builder.Configuration["Authentication:Google:ClientSecret"] ?? "";
+        options.SignInScheme = IdentityConstants.ApplicationScheme;
+
+        options.Events = new OAuthEvents
+        {
+            OnTicketReceived = async ctx =>
+            {
+                var db = ctx.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+                var email = ctx.Principal?.FindFirst(ClaimTypes.Email)?.Value;
+                if (string.IsNullOrEmpty(email)) return;
+
+                var user = await db.Users.FirstOrDefaultAsync(u => u.Email == email);
+                if (user is null)
+                {
+                    user = new IdentityUser
+                    {
+                        UserName = email,
+                        Email = email,
+                        EmailConfirmed = true
+                    };
+                    await db.Users.AddAsync(user);
+                    await db.SaveChangesAsync();
+                }
+            }
+        };
+    });
 
 builder.Services.ConfigureApplicationCookie(options =>
 {
     options.Cookie.HttpOnly = true;
     options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
     options.Cookie.SameSite = SameSiteMode.Strict;
+    options.LoginPath = "/welcome.html";
 });
 
 builder.Services.AddAuthorization();
@@ -38,6 +76,7 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 builder.Services.AddScoped<FeedArticleService>();
 builder.Services.AddScoped<IAiService, AiService>();
 builder.Services.AddHostedService<FeedRefreshWorker>();
+builder.Services.AddSingleton<IEmailService, SmtpEmailService>();
 
 builder.Services.AddHttpClient("AiClient", client =>
 {
@@ -61,9 +100,19 @@ using (var scope = app.Services.CreateScope())
     db.Database.EnsureCreated();
 }
 
+app.UseAuthentication();
+app.UseAuthorization();
+
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.UseDeveloperExceptionPage();
+
+app.MapGet("/", (HttpContext http) =>
+{
+    if (http.User.Identity?.IsAuthenticated == true)
+        return Results.Redirect("/index.html");
+    return Results.Redirect("/welcome.html");
+});
 
 app.MapIdentityApi<IdentityUser>();
 
@@ -79,6 +128,106 @@ app.MapPost("/api/auth/logout", async (SignInManager<IdentityUser> signInManager
     await signInManager.SignOutAsync();
     return Results.Ok();
 }).RequireAuthorization();
+
+app.MapGet("/api/auth/google-login", () =>
+{
+    var properties = new AuthenticationProperties { RedirectUri = "/index.html" };
+    return Results.Challenge(properties, [GoogleDefaults.AuthenticationScheme]);
+});
+
+app.MapPost("/api/auth/register", async (
+    RegisterRequest req, UserManager<IdentityUser> userManager,
+    IEmailService emailService, HttpContext http) =>
+{
+    if (string.IsNullOrWhiteSpace(req.Email) || string.IsNullOrWhiteSpace(req.Password))
+        return Results.BadRequest("Email and password are required.");
+
+    var user = new IdentityUser { UserName = req.Email, Email = req.Email };
+    var result = await userManager.CreateAsync(user, req.Password);
+    if (!result.Succeeded)
+    {
+        var errors = result.Errors.Select(e => e.Description);
+        return Results.BadRequest(new { errors = errors });
+    }
+
+    var token = await userManager.GenerateEmailConfirmationTokenAsync(user);
+    var encodedToken = Uri.EscapeDataString(token);
+    var userId = user.Id;
+    var baseUrl = $"{http.Request.Scheme}://{http.Request.Host}";
+    var url = $"{baseUrl}/verify.html?userId={userId}&token={encodedToken}";
+
+    await emailService.SendVerificationEmailAsync(req.Email, user.Id, token, baseUrl);
+
+    return Results.Ok(new { message = "Account created. Check your email for the verification link.", userId, token = encodedToken });
+});
+
+app.MapPost("/api/auth/signup", async (
+    RegisterRequest req, UserManager<IdentityUser> userManager,
+    IEmailService emailService, HttpContext http) =>
+{
+    // alias — delegate to register
+    return await new Func<Task<IResult>>(async () =>
+    {
+        if (string.IsNullOrWhiteSpace(req.Email) || string.IsNullOrWhiteSpace(req.Password))
+            return Results.BadRequest("Email and password are required.");
+        var user = new IdentityUser { UserName = req.Email, Email = req.Email };
+        var result = await userManager.CreateAsync(user, req.Password);
+        if (!result.Succeeded)
+            return Results.BadRequest(new { errors = result.Errors.Select(e => e.Description) });
+        var token = await userManager.GenerateEmailConfirmationTokenAsync(user);
+        var encodedToken = Uri.EscapeDataString(token);
+        var baseUrl = $"{http.Request.Scheme}://{http.Request.Host}";
+        var url = $"{baseUrl}/verify.html?userId={user.Id}&token={encodedToken}";
+        await emailService.SendVerificationEmailAsync(req.Email, user.Id, token, baseUrl);
+        return Results.Ok(new { message = "Account created. Check your email (or terminal) for the verification link.", userId = user.Id, token = encodedToken, url });
+    })();
+});
+
+app.MapGet("/api/auth/login", async (
+    [FromQuery] string email, [FromQuery] string password, [FromQuery] bool useCookies,
+    SignInManager<IdentityUser> signInManager, UserManager<IdentityUser> userManager) =>
+{
+    var user = await userManager.FindByEmailAsync(email);
+    if (user is null) return Results.Unauthorized();
+    if (!await userManager.IsEmailConfirmedAsync(user))
+        return Results.Json(new { error = "Please verify your email before logging in." }, statusCode: 403);
+
+    var result = await signInManager.PasswordSignInAsync(user, password, true, false);
+    if (!result.Succeeded) return Results.Unauthorized();
+
+    return Results.Ok(new { message = "Login successful." });
+});
+
+app.MapGet("/api/auth/verify-email", async (
+    [FromQuery] string userId, [FromQuery] string token,
+    UserManager<IdentityUser> userManager) =>
+{
+    var user = await userManager.FindByIdAsync(userId);
+    if (user is null) return Results.NotFound(new { error = "User not found." });
+
+    var result = await userManager.ConfirmEmailAsync(user, Uri.UnescapeDataString(token));
+    if (!result.Succeeded) return Results.BadRequest(new { error = "Invalid or expired verification token." });
+
+    return Results.Ok(new { message = "Email verified successfully." });
+});
+
+app.MapPost("/api/auth/resend-verification", async (
+    ResendRequest req, UserManager<IdentityUser> userManager,
+    IEmailService emailService, HttpContext http) =>
+{
+    var user = await userManager.FindByEmailAsync(req.Email);
+    if (user is null || user.EmailConfirmed)
+        return Results.Ok(new { message = "If the account exists and is unverified, a new link has been sent." });
+
+    var token = await userManager.GenerateEmailConfirmationTokenAsync(user);
+    var encodedToken = Uri.EscapeDataString(token);
+    var baseUrl = $"{http.Request.Scheme}://{http.Request.Host}";
+    var url = $"{baseUrl}/verify.html?userId={user.Id}&token={encodedToken}";
+
+    await emailService.SendVerificationEmailAsync(req.Email, user.Id, token, baseUrl);
+
+    return Results.Ok(new { message = "A new verification link has been sent to your email." });
+});
 
 app.MapGet("/api/feeds", async (AppDbContext db, HttpContext http) =>
 {
@@ -529,4 +678,6 @@ record FeedDto(string Url, string? Username = null, string? Password = null);
 record BatchFeedDto(string[] Urls, string? Username = null, string? Password = null);
 record SummarizeDto(string Link, string TextContent);
 record ChatRequest(string Message);
+record RegisterRequest(string Email, string Password);
+record ResendRequest(string Email);
 record Article(int Id, string FeedTitle, string Title, string Link, DateTime PublishDate, string Summary, string? AudioUrl = null, string? ImageUrl = null, bool IsBookmarked = false, bool IsRead = false);

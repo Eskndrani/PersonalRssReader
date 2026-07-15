@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Log In — Personal RSS Reader</title>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#0f172a;color:#f1f5f9;min-height:100vh;display:flex;align-items:center;justify-content:center;-webkit-font-smoothing:antialiased}
+    .card{background:#1e293b;border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:2rem;width:100%;max-width:380px;box-shadow:0 8px 30px rgba(0,0,0,0.4)}
+    h1{font-size:1.4rem;font-weight:800;margin-bottom:0.3rem;text-align:center}
+    p{font-size:0.85rem;color:#94a3b8;text-align:center;margin-bottom:1.5rem}
+    label{display:block;font-size:0.78rem;font-weight:500;color:#94a3b8;margin-bottom:0.3rem}
+    input{width:100%;padding:0.65rem 0.75rem;border:1px solid rgba(255,255,255,0.12);border-radius:9999px;font-size:0.85rem;background:#162032;color:#f1f5f9;margin-bottom:1rem;font-family:inherit}
+    input:focus{outline:none;border-color:#818cf8;box-shadow:0 0 0 3px rgba(129,140,248,0.25)}
+    .btn{width:100%;padding:0.7rem;border-radius:9999px;font-size:0.88rem;font-weight:600;cursor:pointer;border:none;background:#818cf8;color:#fff;transition:all 0.2s ease}
+    .btn:hover{background:#6366f1}
+    .btn:disabled{opacity:0.5;cursor:not-allowed}
+    .error{font-size:0.78rem;color:#f87171;text-align:center;margin-top:0.5rem;display:none}
+    .note{font-size:0.72rem;color:#64748b}
+    .back{text-align:center;margin-top:1rem}
+    .back a{font-size:0.82rem;color:#818cf8;text-decoration:none}
+    .back a:hover{text-decoration:underline}
+    .toast{position:fixed;bottom:1.5rem;right:1.5rem;background:#34d399;color:#111;padding:0.75rem 1.25rem;border-radius:8px;font-size:0.78rem;font-weight:500;z-index:1000;animation:toast-in 0.3s ease forwards;display:none}
+    @keyframes toast-in{from{opacity:0;transform:translateY(0.75rem)}to{opacity:1;transform:translateY(0)}}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Welcome back</h1>
+    <p>Log in to your account</p>
+    <form id="login-form">
+      <label for="email">Email</label>
+      <input type="email" id="email" placeholder="you@example.com" required autocomplete="email">
+      <label for="password">Password</label>
+      <input type="password" id="password" placeholder="Your password" required autocomplete="current-password">
+      <button type="submit" class="btn" id="login-btn">Log In</button>
+    </form>
+    <p class="error" id="login-error"></p>
+    <div id="resend-section" style="display:none;text-align:center;margin-top:0.75rem">
+      <button class="btn" id="resend-btn" style="background:#1e293b;border:1px solid rgba(255,255,255,0.12);font-size:0.78rem">Resend Verification Email</button>
+      <p class="note" id="resend-msg" style="margin-top:0.5rem;display:none">A new link has been sent to your inbox!</p>
+    </div>
+    <div class="back"><a href="/welcome.html">&larr; Back to welcome page</a></div>
+  </div>
+  <div id="toast" class="toast"></div>
+  <script>
+    document.getElementById("login-form").addEventListener("submit", async function(e) {
+      e.preventDefault();
+      var btn = document.getElementById("login-btn");
+      var err = document.getElementById("login-error");
+      btn.disabled = true; btn.textContent = "Logging in..."; err.style.display = "none";
+
+      try {
+        var res = await fetch("/api/auth/login?email=" + encodeURIComponent(document.getElementById("email").value) + "&password=" + encodeURIComponent(document.getElementById("password").value) + "&useCookies=true");
+        if (res.status === 403) {
+          var data = await res.json();
+          err.textContent = data.error || "Please verify your email first.";
+          err.style.display = "block";
+          document.getElementById("resend-section").style.display = "block";
+          btn.disabled = false; btn.textContent = "Log In";
+          return;
+        }
+        if (!res.ok) {
+          err.textContent = "Invalid email or password.";
+          err.style.display = "block";
+          btn.disabled = false; btn.textContent = "Log In";
+          return;
+        }
+        window.location.href = "/index.html";
+      } catch(ex) {
+        err.textContent = "Network error. Please try again.";
+        err.style.display = "block";
+        btn.disabled = false; btn.textContent = "Log In";
+      }
+    });
+    document.getElementById("resend-btn").addEventListener("click", async function() {
+      var email = document.getElementById("email").value;
+      if (!email) return;
+      var btn = document.getElementById("resend-btn");
+      btn.disabled = true; btn.textContent = "Sending...";
+      await fetch("/api/auth/resend-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email })
+      });
+      btn.textContent = "Resend Verification Email";
+      btn.disabled = false;
+      document.getElementById("resend-msg").style.display = "block";
+    });
+  </script>
+</body>
+</html>

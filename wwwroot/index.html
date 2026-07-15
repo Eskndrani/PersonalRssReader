@@ -85,6 +85,11 @@
 
     <main class="main">
       <div class="main-header">
+        <button id="hamburger-btn" class="hamburger-btn" aria-label="Toggle menu" style="display: none;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+          </svg>
+        </button>
         <h1 data-i18n="riverOfNews">River of News</h1>
         <button id="refresh-btn" class="btn btn-secondary" title="Refresh articles">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -151,27 +156,6 @@
   </div>
 
   <div id="toast-container" class="toast-container" aria-live="polite"></div>
-
-  <div id="auth-modal" class="modal" style="display: flex;">
-    <div class="modal-backdrop"></div>
-    <div class="modal-content auth-modal-content">
-      <div id="auth-login-form" class="auth-form">
-        <h2 data-i18n="loginTitle">Log In</h2>
-        <input type="email" id="login-email" placeholder="Email" autocomplete="email">
-        <input type="password" id="login-password" placeholder="Password" autocomplete="current-password">
-        <button type="submit" class="btn btn-primary login-btn">Log In</button>
-        <p class="auth-switch"><span data-i18n="noAccount">No account?</span> <a href="#" id="show-register" data-i18n="signUpHere">Sign up here</a></p>
-      </div>
-      <div id="auth-register-form" class="auth-form" style="display: none;">
-        <h2 data-i18n="registerTitle">Create Account</h2>
-        <input type="email" id="register-email" placeholder="Email" autocomplete="email">
-        <input type="password" id="register-password" placeholder="Password" autocomplete="new-password">
-        <button type="submit" class="btn btn-primary register-btn">Sign Up</button>
-        <p class="auth-switch"><span data-i18n="haveAccount">Already have an account?</span> <a href="#" id="show-login" data-i18n="logInHere">Log in here</a></p>
-      </div>
-      <p id="auth-error" class="auth-error" style="display: none;"></p>
-    </div>
-  </div>
 
   <div id="read-modal" class="modal" style="display: none;">
     <div class="modal-backdrop"></div>

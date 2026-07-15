@@ -38,6 +38,7 @@ function initTheme() {
   const saved = localStorage.getItem("theme");
   if (saved === "dark" || saved === "light") {
     document.documentElement.setAttribute("data-theme", saved);
+    updateThemeIcon(saved);
   }
 }
 
@@ -54,6 +55,20 @@ function toggleTheme() {
   const next = isDark ? "light" : "dark";
   document.documentElement.setAttribute("data-theme", next);
   localStorage.setItem("theme", next);
+  updateThemeIcon(next);
+}
+
+function updateThemeIcon(theme) {
+  var sun = document.querySelector(".theme-toggle .icon-sun");
+  var moon = document.querySelector(".theme-toggle .icon-moon");
+  if (!sun || !moon) return;
+  if (theme === "light") {
+    sun.style.display = "none";
+    moon.style.display = "inline";
+  } else {
+    sun.style.display = "inline";
+    moon.style.display = "none";
+  }
 }
 
 const translations = {
@@ -837,21 +852,24 @@ async function checkAuth() {
     if (res.ok) {
       var data = await res.json();
       document.getElementById("user-email").textContent = data.email || "";
-      document.getElementById("auth-modal").style.display = "none";
       document.getElementById("btn-logout").style.display = "";
-      document.getElementById("user-email").textContent = data.email || "";
       setupAuthorized();
+      return;
+    }
+    if (res.status === 401 || res.status === 403) {
+      window.location.href = "/welcome.html";
       return;
     }
   } catch (e) {
     console.error("Auth check failed:", e);
   }
-  document.getElementById("auth-modal").style.display = "flex";
-  document.getElementById("btn-logout").style.display = "none";
-  document.getElementById("user-email").textContent = "";
+  window.location.href = "/welcome.html";
 }
 
 function setupAuthorized() {
+  document.getElementById("hamburger-btn").addEventListener("click", function () {
+    document.querySelector(".sidebar").classList.toggle("open");
+  });
   loadFeeds();
   setupAddFeedForm();
   setupRetention();
@@ -1048,82 +1066,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.getElementById("btn-logout").addEventListener("click", async function () {
     await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
-    window.location.reload();
-  });
-
-  document.getElementById("show-register").addEventListener("click", function (e) {
-    e.preventDefault();
-    document.getElementById("auth-login-form").style.display = "none";
-    document.getElementById("auth-register-form").style.display = "";
-    document.getElementById("auth-error").style.display = "none";
-  });
-
-  document.getElementById("show-login").addEventListener("click", function (e) {
-    e.preventDefault();
-    document.getElementById("auth-register-form").style.display = "none";
-    document.getElementById("auth-login-form").style.display = "";
-    document.getElementById("auth-error").style.display = "none";
-  });
-
-  document.getElementById("auth-login-form").querySelector(".login-btn").addEventListener("click", async function (e) {
-    e.preventDefault();
-    var email = document.getElementById("login-email").value;
-    var password = document.getElementById("login-password").value;
-    var errEl = document.getElementById("auth-error");
-
-    try {
-      var res = await fetch("/login?useCookies=true", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email, password: password })
-      });
-      if (!res.ok) {
-        errEl.textContent = "Invalid email or password.";
-        errEl.style.display = "";
-        return;
-      }
-      checkAuth();
-    } catch (ex) {
-      errEl.textContent = "Network error. Please try again.";
-      errEl.style.display = "";
-    }
-  });
-
-  document.getElementById("auth-register-form").querySelector(".register-btn").addEventListener("click", async function (e) {
-    e.preventDefault();
-    var email = document.getElementById("register-email").value;
-    var password = document.getElementById("register-password").value;
-    var errEl = document.getElementById("auth-error");
-
-    if (password.length < 6) {
-      errEl.textContent = "Password must be at least 6 characters.";
-      errEl.style.display = "";
-      return;
-    }
-
-    try {
-      var res = await fetch("/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email, password: password })
-      });
-      if (!res.ok) {
-        var data = await res.json();
-        var msg = "";
-        for (var key in data.errors) { msg += data.errors[key].join(", "); }
-        errEl.textContent = msg || "Registration failed.";
-        errEl.style.display = "";
-        return;
-      }
-      document.getElementById("auth-register-form").style.display = "none";
-      document.getElementById("auth-login-form").style.display = "";
-      document.getElementById("register-email").value = "";
-      document.getElementById("register-password").value = "";
-      showToast("Registration successful, please log in.", false);
-    } catch (ex) {
-      errEl.textContent = "Network error. Please try again.";
-      errEl.style.display = "";
-    }
+    window.location.href = "/welcome.html";
   });
 
   document.getElementById("read-modal").querySelector(".modal-close").addEventListener("click", closeModal);
