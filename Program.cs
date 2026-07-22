@@ -150,6 +150,12 @@ using (var scope = app.Services.CreateScope())
     {
         db.Database.ExecuteSqlRaw(
             "CREATE TABLE IF NOT EXISTS UserProfiles (Id TEXT PRIMARY KEY, UserId TEXT, GuestSessionId TEXT, DisplayName TEXT, Bio TEXT, ProfilePictureUrl TEXT, CoverPhotoUrl TEXT, SocialLinks TEXT)");
+        db.Database.ExecuteSqlRaw(
+            "CREATE TABLE IF NOT EXISTS CommunityPosts (Id TEXT PRIMARY KEY, Content TEXT NOT NULL, MediaUrl TEXT, AuthorId TEXT NOT NULL, AuthorName TEXT, CreatedAt TEXT NOT NULL)");
+        db.Database.ExecuteSqlRaw(
+            "CREATE TABLE IF NOT EXISTS PostReactions (PostId TEXT NOT NULL, UserId TEXT NOT NULL, ReactionType TEXT NOT NULL, PRIMARY KEY (PostId, UserId), FOREIGN KEY (PostId) REFERENCES CommunityPosts(Id) ON DELETE CASCADE)");
+        db.Database.ExecuteSqlRaw(
+            "CREATE TABLE IF NOT EXISTS UserBlocks (BlockerId TEXT NOT NULL, BlockedId TEXT NOT NULL, PRIMARY KEY (BlockerId, BlockedId))");
     }
     catch { }
 }
@@ -287,6 +293,143 @@ app.MapGet("/api/profile/insights", async (
     var insights = await ai.GenerateReadingInsightsAsync(readArticles, totalRead, totalBookmarks, subscribedUrls, lang);
 
     return Results.Ok(new { readingPersona = insights.Persona, recommendedFeeds = insights.Recommendations, totalRead, totalBookmarks });
+});
+
+app.MapGet("/api/community/posts", async (AppDbContext db, HttpContext http) =>
+{
+    var key = GetUserKey(http);
+    var blockedIds = await db.UserBlocks
+        .Where(b => b.BlockerId == key)
+        .Select(b => b.BlockedId)
+        .ToListAsync();
+
+    var posts = await db.CommunityPosts
+        .Where(p => !blockedIds.Contains(p.AuthorId))
+        .OrderByDescending(p => p.CreatedAt)
+        .Take(50)
+        .Select(p => new
+        {
+            p.Id,
+            p.Content,
+            p.MediaUrl,
+            p.AuthorId,
+            p.AuthorName,
+            p.CreatedAt,
+            ReactionCounts = p.Reactions.GroupBy(r => r.ReactionType)
+                .Select(g => new { Type = g.Key, Count = g.Count() }).ToList(),
+            CurrentUserReaction = p.Reactions.Where(r => r.UserId == key).Select(r => r.ReactionType).FirstOrDefault()
+        })
+        .ToListAsync();
+
+    return Results.Ok(posts);
+});
+
+app.MapPost("/api/community/posts", async (CreatePostDto dto, AppDbContext db, HttpContext http) =>
+{
+    var key = GetUserKey(http);
+    if (string.IsNullOrWhiteSpace(dto.Content))
+        return Results.BadRequest(new { error = "Content is required." });
+
+    var profile = await db.UserProfiles
+        .FirstOrDefaultAsync(p => p.UserId == key || p.GuestSessionId == key);
+    var authorName = profile?.DisplayName ?? (http.User.Identity?.Name ?? "Guest");
+
+    var post = new CommunityPost
+    {
+        Id = Guid.NewGuid().ToString(),
+        Content = dto.Content.Trim(),
+        MediaUrl = dto.MediaUrl,
+        AuthorId = key,
+        AuthorName = authorName,
+        CreatedAt = DateTime.UtcNow
+    };
+
+    db.CommunityPosts.Add(post);
+    await db.SaveChangesAsync();
+
+    return Results.Created($"/api/community/posts/{post.Id}", new
+    {
+        post.Id,
+        post.Content,
+        post.MediaUrl,
+        post.AuthorId,
+        post.AuthorName,
+        post.CreatedAt,
+        ReactionCounts = new List<object>(),
+        CurrentUserReaction = (string?)null
+    });
+});
+
+app.MapDelete("/api/community/posts/{id}", async (string id, AppDbContext db, HttpContext http) =>
+{
+    var key = GetUserKey(http);
+    var post = await db.CommunityPosts.FirstOrDefaultAsync(p => p.Id == id && p.AuthorId == key);
+    if (post is null) return Results.NotFound();
+
+    db.CommunityPosts.Remove(post);
+    await db.SaveChangesAsync();
+
+    return Results.NoContent();
+});
+
+app.MapPost("/api/community/posts/{id}/react", async (string id, ReactDto dto, AppDbContext db, HttpContext http) =>
+{
+    var key = GetUserKey(http);
+    var validTypes = new[] { "Like", "Love", "Insightful" };
+    if (!validTypes.Contains(dto.ReactionType))
+        return Results.BadRequest(new { error = "Invalid reaction type. Use Like, Love, or Insightful." });
+
+    var post = await db.CommunityPosts.Include(p => p.Reactions).FirstOrDefaultAsync(p => p.Id == id);
+    if (post is null) return Results.NotFound();
+
+    var existing = post.Reactions.FirstOrDefault(r => r.UserId == key);
+
+    if (existing is not null)
+    {
+        if (existing.ReactionType == dto.ReactionType)
+        {
+            db.PostReactions.Remove(existing);
+        }
+        else
+        {
+            existing.ReactionType = dto.ReactionType;
+        }
+    }
+    else
+    {
+        db.PostReactions.Add(new PostReaction { PostId = id, UserId = key, ReactionType = dto.ReactionType });
+    }
+
+    await db.SaveChangesAsync();
+
+    var counts = await db.PostReactions
+        .Where(r => r.PostId == id)
+        .GroupBy(r => r.ReactionType)
+        .Select(g => new { Type = g.Key, Count = g.Count() })
+        .ToListAsync();
+
+    var userReaction = await db.PostReactions
+        .Where(r => r.PostId == id && r.UserId == key)
+        .Select(r => r.ReactionType)
+        .FirstOrDefaultAsync();
+
+    return Results.Ok(new { reactionCounts = counts, currentUserReaction = userReaction });
+});
+
+app.MapPost("/api/users/{blockedId}/block", async (string blockedId, AppDbContext db, HttpContext http) =>
+{
+    var key = GetUserKey(http);
+    if (key == blockedId)
+        return Results.BadRequest(new { error = "You cannot block yourself." });
+
+    var exists = await db.UserBlocks.AnyAsync(b => b.BlockerId == key && b.BlockedId == blockedId);
+    if (exists)
+        return Results.Ok(new { blocked = true });
+
+    db.UserBlocks.Add(new UserBlock { BlockerId = key, BlockedId = blockedId });
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new { blocked = true });
 });
 
 app.MapPost("/api/auth/logout", async (SignInManager<IdentityUser> signInManager) =>
@@ -1057,6 +1200,31 @@ public class UserProfile
     public string? SocialLinks { get; set; }
 }
 
+public class CommunityPost
+{
+    public string Id { get; set; } = "";
+    public string Content { get; set; } = "";
+    public string? MediaUrl { get; set; }
+    public string AuthorId { get; set; } = "";
+    public string? AuthorName { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public ICollection<PostReaction> Reactions { get; set; } = new List<PostReaction>();
+}
+
+public class PostReaction
+{
+    public string PostId { get; set; } = "";
+    public string UserId { get; set; } = "";
+    public string ReactionType { get; set; } = "";
+    public CommunityPost? Post { get; set; }
+}
+
+public class UserBlock
+{
+    public string BlockerId { get; set; } = "";
+    public string BlockedId { get; set; } = "";
+}
+
 public class AppDbContext : IdentityDbContext<IdentityUser>
 {
     public DbSet<ArticleEntity> Articles => Set<ArticleEntity>();
@@ -1064,6 +1232,9 @@ public class AppDbContext : IdentityDbContext<IdentityUser>
     public DbSet<UserAiUsage> AiUsage => Set<UserAiUsage>();
     public DbSet<Playlist> Playlists => Set<Playlist>();
     public DbSet<UserProfile> UserProfiles => Set<UserProfile>();
+    public DbSet<CommunityPost> CommunityPosts => Set<CommunityPost>();
+    public DbSet<PostReaction> PostReactions => Set<PostReaction>();
+    public DbSet<UserBlock> UserBlocks => Set<UserBlock>();
 
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
@@ -1096,6 +1267,25 @@ public class AppDbContext : IdentityDbContext<IdentityUser>
             entity.HasKey(e => e.Id);
         });
 
+        modelBuilder.Entity<CommunityPost>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasMany(e => e.Reactions)
+                .WithOne(r => r.Post)
+                .HasForeignKey(r => r.PostId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PostReaction>(entity =>
+        {
+            entity.HasKey(e => new { e.PostId, e.UserId });
+        });
+
+        modelBuilder.Entity<UserBlock>(entity =>
+        {
+            entity.HasKey(e => new { e.BlockerId, e.BlockedId });
+        });
+
         modelBuilder.Entity<UserAiUsage>(entity =>
         {
             entity.HasKey(e => e.Id);
@@ -1123,4 +1313,6 @@ record CreatePlaylistDto(string Name);
 record UpdatePlaylistDto(string Name);
 record AssignPlaylistDto(string? PlaylistId);
 record UpdateProfileDto(string? DisplayName, string? Bio, string? ProfilePictureUrl, string? CoverPhotoUrl, string? SocialLinks);
+record CreatePostDto(string Content, string? MediaUrl = null);
+record ReactDto(string ReactionType);
 record Article(int Id, string FeedTitle, string Title, string Link, DateTime PublishDate, string Summary, string? AudioUrl = null, string? ImageUrl = null, bool IsBookmarked = false, bool IsRead = false);

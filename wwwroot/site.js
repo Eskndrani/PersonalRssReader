@@ -174,7 +174,12 @@ const translations = {
     placeholderUrl: "Paste one or more URLs (one per line)...",
     placeholderUsername: "username (optional)",
     placeholderPassword: "password (optional)",
-    placeholderSearch: "Search subscriptions..."
+    placeholderSearch: "Search subscriptions...",
+    communityTab: "Community",
+    communityPlaceholder: "Share something with the community...",
+    communityPost: "Post",
+    communityBlock: "Block",
+    communityBlocked: "Blocked"
   },
   ar: {
     subscriptions: "الاشتراكات",
@@ -255,7 +260,12 @@ const translations = {
     placeholderUrl: "أدخل رابطاً أو أكثر (رابط في كل سطر)...",
     placeholderUsername: "اسم المستخدم (اختياري)",
     placeholderPassword: "كلمة المرور (اختياري)",
-    placeholderSearch: "البحث في الاشتراكات..."
+    placeholderSearch: "البحث في الاشتراكات...",
+    communityTab: "المجتمع",
+    communityPlaceholder: "شارك شيئاً مع المجتمع...",
+    communityPost: "نشر",
+    communityBlock: "حظر",
+    communityBlocked: "محظور"
   }
 };
 
@@ -1265,6 +1275,7 @@ function setupAuthorized() {
   setupListeners();
   setupBriefing();
   setupChat();
+  setupCommunityListeners();
 }
 
 function setupBriefing() {
@@ -1418,6 +1429,18 @@ function setupTabs() {
       document.querySelectorAll("[data-article-tab]").forEach(function (b) { b.classList.remove("active"); });
       e.target.classList.add("active");
       currentArticleTab = e.target.dataset.articleTab;
+
+      if (currentArticleTab === "community") {
+        document.getElementById("articles-container").style.display = "none";
+        document.getElementById("empty-state").style.display = "none";
+        document.getElementById("pagination-controls").style.display = "none";
+        document.getElementById("community-section").style.display = "";
+        loadCommunityPosts();
+        return;
+      }
+
+      document.getElementById("community-section").style.display = "none";
+      document.getElementById("articles-container").style.display = "";
       if (currentArticleTab === "history") await loadHistory();
       renderPage(1);
     });
@@ -1438,6 +1461,119 @@ function setupButtons() {
     visibleFeeds.forEach(function (f) { excludedFeedTitles.add(f.title); });
     renderFeedList(allFeeds);
     renderPage(1);
+  });
+}
+
+async function loadCommunityPosts() {
+  var feed = document.getElementById("community-feed");
+  feed.innerHTML = '<div class="profile-spinner" style="padding:2rem"><div class="profile-spinner-icon"></div></div>';
+  try {
+    var res = await apiFetch("/api/community/posts");
+    var posts = await res.json();
+    renderCommunityPosts(posts);
+  } catch (e) {
+    feed.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:2rem">Could not load community posts.</p>';
+  }
+}
+
+function renderCommunityPosts(posts) {
+  var feed = document.getElementById("community-feed");
+  if (posts.length === 0) {
+    feed.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:2rem">No posts yet. Be the first to share!</p>';
+    return;
+  }
+  feed.innerHTML = posts.map(function (p) {
+    var time = timeSince(p.createdAt);
+    var media = p.mediaUrl ? '<img src="' + escapeAttr(p.mediaUrl) + '" class="community-post-media" onerror="this.style.display=\'none\'" alt="">' : '';
+
+    var likeCount = 0, loveCount = 0, insightCount = 0;
+    (p.reactionCounts || []).forEach(function (rc) {
+      if (rc.type === "Like") likeCount = rc.count;
+      if (rc.type === "Love") loveCount = rc.count;
+      if (rc.type === "Insightful") insightCount = rc.count;
+    });
+
+    var userReact = p.currentUserReaction || "";
+
+    return '<div class="community-post">' +
+      '<div class="community-post-header">' +
+      '<span class="community-post-author">' + escapeHtml(p.authorName || "User") + '</span>' +
+      '<div style="display:flex;align-items:center;gap:0.5rem">' +
+      '<span class="community-post-time">' + time + '</span>' +
+      '<button class="community-block-btn" data-block-user="' + escapeAttr(p.authorId) + '" title="' + t("communityBlock") + '">&#x1F6AB;</button>' +
+      '</div></div>' +
+      media +
+      '<div class="community-post-content">' + escapeHtml(p.content) + '</div>' +
+      '<div class="community-post-actions">' +
+      '<div class="community-reactions">' +
+      '<button class="community-react-btn' + (userReact === "Like" ? " active" : "") + '" data-react="Like" data-post-id="' + escapeAttr(p.id) + '">&#x1F44D; ' + likeCount + '</button>' +
+      '<button class="community-react-btn' + (userReact === "Love" ? " active" : "") + '" data-react="Love" data-post-id="' + escapeAttr(p.id) + '">&#x2764;&#xFE0F; ' + loveCount + '</button>' +
+      '<button class="community-react-btn' + (userReact === "Insightful" ? " active" : "") + '" data-react="Insightful" data-post-id="' + escapeAttr(p.id) + '">&#x1F4A1; ' + insightCount + '</button>' +
+      '</div></div></div>';
+  }).join("");
+}
+
+function setupCommunityListeners() {
+  document.getElementById("btn-community-post").addEventListener("click", async function () {
+    var input = document.getElementById("community-post-input");
+    var mediaInput = document.getElementById("community-media-url");
+    var content = input.value.trim();
+    if (!content) return;
+
+    var btn = document.getElementById("btn-community-post");
+    btn.disabled = true;
+    btn.textContent = "Posting...";
+
+    try {
+      var body = { content: content };
+      if (mediaInput.value.trim()) body.mediaUrl = mediaInput.value.trim();
+      await apiFetch("/api/community/posts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      input.value = "";
+      mediaInput.value = "";
+      loadCommunityPosts();
+    } catch (e) {
+      showToast(e.message || "Could not create post.", true);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = t("communityPost");
+    }
+  });
+
+  document.getElementById("community-feed").addEventListener("click", function (e) {
+    var reactBtn = e.target.closest(".community-react-btn");
+    if (reactBtn) {
+      reactBtn.disabled = true;
+      var postId = reactBtn.dataset.postId;
+      var reactionType = reactBtn.dataset.react;
+      apiFetch("/api/community/posts/" + postId + "/react", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reactionType: reactionType })
+      }).then(function () {
+        loadCommunityPosts();
+      }).catch(function (err) {
+        showToast(err.message || "Reaction failed.", true);
+        reactBtn.disabled = false;
+      });
+      return;
+    }
+
+    var blockBtn = e.target.closest(".community-block-btn");
+    if (blockBtn) {
+      var blockedId = blockBtn.dataset.blockUser;
+      apiFetch("/api/users/" + blockedId + "/block", { method: "POST" })
+        .then(function () {
+          blockBtn.textContent = t("communityBlocked");
+          blockBtn.style.color = "var(--danger)";
+          loadCommunityPosts();
+        }).catch(function (err) {
+          showToast(err.message || "Could not block user.", true);
+        });
+    }
   });
 }
 

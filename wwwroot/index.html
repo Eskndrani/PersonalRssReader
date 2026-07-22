@@ -135,6 +135,7 @@
         <button class="tab-btn active" data-article-tab="all" data-i18n="allArticles">All News</button>
         <button class="tab-btn" data-article-tab="bookmarks" data-i18n="bookmarkedArticles">Bookmarks</button>
         <button class="tab-btn" data-article-tab="history">History</button>
+        <button class="tab-btn" data-article-tab="community" data-i18n="communityTab">Community</button>
       </div>
 
       <div class="search-bar">
@@ -181,6 +182,17 @@
           <label for="jump-page-input" data-i18n="jumpTo">Jump to</label>
           <input type="number" id="jump-page-input" min="1" placeholder="#" autocomplete="off">
         </span>
+      </div>
+
+      <div id="community-section" style="display:none;">
+        <div class="community-create">
+          <textarea id="community-post-input" class="community-post-input" placeholder="Share something with the community..." rows="2" maxlength="500"></textarea>
+          <div class="community-create-actions">
+            <input type="url" id="community-media-url" class="community-media-input" placeholder="Image URL (optional)">
+            <button id="btn-community-post" class="btn btn-primary">Post</button>
+          </div>
+        </div>
+        <div id="community-feed" class="community-feed"></div>
       </div>
     </main>
 
