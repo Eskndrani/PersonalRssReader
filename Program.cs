@@ -288,11 +288,14 @@ app.MapPost("/api/auth/resend-verification", async (
     return Results.Ok(new { message = "A new verification link has been sent to your email." });
 });
 
-string[] GuestFeedUrls = {
-    "https://hackaday.com/feed/",
-    "https://www.elbalad.news/rss.aspx",
-    "http://feeds.bbci.co.uk/arabic/rss.xml",
-    "https://blog.arduino.cc/feed/"
+(string Url, string Playlist)[] GuestFeedMappings = {
+    ("https://hackaday.com/feed/", "Tech & Maker"),
+    ("https://blog.arduino.cc/feed/", "Tech & Maker"),
+    ("https://www.theverge.com/rss/index.xml", "Tech & Maker"),
+    ("https://feeds.bbci.co.uk/news/world/rss.xml", "World News"),
+    ("https://www.elbalad.news/rss.aspx", "World News"),
+    ("http://feeds.bbci.co.uk/arabic/rss.xml", "World News"),
+    ("https://xkcd.com/rss.xml", "Fun")
 };
 
 app.MapGet("/api/feeds", async (AppDbContext db, HttpContext http, FeedArticleService articleService) =>
@@ -303,7 +306,21 @@ app.MapGet("/api/feeds", async (AppDbContext db, HttpContext http, FeedArticleSe
     var feedCount = await db.Feeds.CountAsync(f => f.UserId == key || f.GuestSessionId == key);
     if (isGuest && feedCount == 0)
     {
-        foreach (var url in GuestFeedUrls)
+        var playlistNames = GuestFeedMappings.Select(m => m.Playlist).Distinct();
+        var playlistMap = new Dictionary<string, string>();
+        foreach (var name in playlistNames)
+        {
+            var playlist = new Playlist
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = name,
+                GuestSessionId = key
+            };
+            db.Playlists.Add(playlist);
+            playlistMap[name] = playlist.Id;
+        }
+
+        foreach (var (url, playlistName) in GuestFeedMappings)
         {
             string title;
             try { title = await articleService.FetchFeedTitleAsync(url, null, null, CancellationToken.None); }
@@ -314,6 +331,7 @@ app.MapGet("/api/feeds", async (AppDbContext db, HttpContext http, FeedArticleSe
                 Url = url,
                 Title = title,
                 GuestSessionId = key,
+                PlaylistId = playlistMap[playlistName],
                 FaviconUrl = GetFaviconUrl(url)
             });
         }

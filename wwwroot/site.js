@@ -577,8 +577,11 @@ function renderFeedList(feeds) {
     return;
   }
 
+  var seen = new Set();
   var grouped = {};
   feedsToRender.forEach(function (f) {
+    if (seen.has(f.id)) return;
+    seen.add(f.id);
     var key = f.playlistId || "__uncategorized__";
     if (!grouped[key]) grouped[key] = [];
     grouped[key].push(f);
@@ -1172,10 +1175,19 @@ function buildProfileHeader(data) {
   }
 }
 
+var authorizedSetupDone = false;
+
 function setupAuthorized() {
   document.getElementById("auth-loading").style.display = "none";
   document.getElementById("app-layout").style.display = "";
   updateQuotaUI();
+
+  if (authorizedSetupDone) {
+    loadFeeds();
+    return;
+  }
+  authorizedSetupDone = true;
+
   document.getElementById("hamburger-btn").addEventListener("click", function () {
     document.querySelector(".sidebar").classList.toggle("open");
     document.getElementById("sidebar-backdrop").classList.toggle("open");
