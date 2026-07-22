@@ -60,6 +60,7 @@
           <img src="/logo.svg" alt="" class="sidebar-logo" width="20" height="20">
           Subscriptions
         </h2>
+        <button id="btn-new-playlist" class="btn-new-playlist" title="Create Playlist" aria-label="Create Playlist">+</button>
       </div>
 
       <div class="sidebar-settings">
@@ -79,6 +80,11 @@
           <input type="text" id="feed-username" placeholder="اسم المستخدم (اختياري)" autocomplete="off">
           <input type="password" id="feed-password" placeholder="كلمة المرور (اختياري)" autocomplete="off">
         </div>
+        <div class="add-feed-playlist">
+          <select id="feed-playlist-select">
+            <option value="">No Playlist</option>
+          </select>
+        </div>
         <button type="submit" class="btn btn-primary add-feed-btn" data-i18n="add">Add</button>
       </form>
 
@@ -94,17 +100,17 @@
         <button id="btn-hide-all" class="text-btn" data-i18n="hideAll">Hide All</button>
       </div>
 
-      <ul id="feed-list" class="feed-list">
-        <li class="feed-item skeleton-feed">
+      <div id="feed-list" class="feed-list">
+        <div class="feed-item skeleton-feed">
           <span class="skeleton-block skeleton-text"></span>
-        </li>
-        <li class="feed-item skeleton-feed">
+        </div>
+        <div class="feed-item skeleton-feed">
           <span class="skeleton-block skeleton-text skeleton-text--short"></span>
-        </li>
-        <li class="feed-item skeleton-feed">
+        </div>
+        <div class="feed-item skeleton-feed">
           <span class="skeleton-block skeleton-text skeleton-text--medium"></span>
-        </li>
-      </ul>
+        </div>
+      </div>
     </aside>
 
     <main class="main">

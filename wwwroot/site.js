@@ -158,6 +158,11 @@ const translations = {
     logout: "Logout",
     guestAccount: "Guest Account",
     signInRegister: "Sign In / Register",
+    uncategorized: "Uncategorized",
+    newPlaylist: "New Playlist",
+    renamePlaylist: "Rename",
+    deletePlaylist: "Delete Playlist",
+    moveToPlaylist: "Move to playlist",
     dailyBriefing: "Daily Briefing",
     dismiss: "Dismiss",
     chatTitle: "Chat with your feeds",
@@ -232,6 +237,11 @@ const translations = {
     logout: "تسجيل الخروج",
     guestAccount: "حساب ضيف",
     signInRegister: "تسجيل الدخول / إنشاء حساب",
+    uncategorized: "غير مصنف",
+    newPlaylist: "قائمة جديدة",
+    renamePlaylist: "إعادة تسمية",
+    deletePlaylist: "حذف القائمة",
+    moveToPlaylist: "نقل إلى قائمة",
     dailyBriefing: "الموجز اليومي",
     dismiss: "إغلاق",
     chatTitle: "تحدث مع مصادر الأخبار",
@@ -318,6 +328,8 @@ function toggleLocale() {
 let allFeeds = [];
 let allArticles = [];
 let historyArticles = [];
+let allPlaylists = [];
+let collapsedPlaylists = new Set();
 let currentFeedTab = "all";
 let currentArticleTab = "all";
 let excludedFeedTitles = new Set();
@@ -433,12 +445,106 @@ async function loadFeeds() {
     var res = await apiFetch("/api/feeds?t=" + Date.now());
     if (!res.ok) throw new Error("Failed to fetch feeds");
     var feeds = await res.json();
+    await loadPlaylists();
     renderFeedList(feeds);
     await loadNews();
   } catch {
     list.innerHTML =
-      '<li class="feed-item" style="color:#9ca3af; padding:1rem 1.25rem;">' + t("noSubscriptions") + '</li>';
+      '<div class="feed-item" style="color:#9ca3af; padding:1rem 1.25rem;">' + t("noSubscriptions") + '</div>';
     showToast(t("couldNotLoadSubs"), true);
+  }
+}
+
+async function loadPlaylists() {
+  try {
+    var res = await apiFetch("/api/playlists?t=" + Date.now());
+    if (!res.ok) throw new Error("Failed to fetch playlists");
+    allPlaylists = await res.json();
+    var saved = localStorage.getItem("collapsedPlaylists");
+    if (saved) {
+      collapsedPlaylists = new Set(JSON.parse(saved));
+    }
+  } catch {
+    allPlaylists = [];
+  }
+}
+
+async function createPlaylist(name) {
+  try {
+    var res = await apiFetch("/api/playlists", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name })
+    });
+    if (!res.ok) throw new Error("Failed");
+    var playlist = await res.json();
+    allPlaylists.push(playlist);
+    renderFeedList(allFeeds);
+    return playlist;
+  } catch (e) {
+    showToast(e.message || "Could not create playlist", true);
+    return null;
+  }
+}
+
+async function renamePlaylist(id, newName) {
+  try {
+    var res = await apiFetch("/api/playlists/" + id, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: newName })
+    });
+    if (!res.ok) throw new Error("Failed");
+    var p = allPlaylists.find(function (pl) { return pl.id === id; });
+    if (p) p.name = newName;
+    renderFeedList(allFeeds);
+  } catch (e) {
+    showToast(e.message || "Could not rename playlist", true);
+  }
+}
+
+async function deletePlaylist(id) {
+  if (!confirm(t("deletePlaylist") + "?")) return;
+  try {
+    var res = await apiFetch("/api/playlists/" + id, { method: "DELETE" });
+    if (!res.ok) throw new Error("Failed");
+    allPlaylists = allPlaylists.filter(function (p) { return p.id !== id; });
+    allFeeds.forEach(function (f) { if (f.playlistId === id) f.playlistId = null; });
+    renderFeedList(allFeeds);
+  } catch (e) {
+    showToast(e.message || "Could not delete playlist", true);
+  }
+}
+
+async function assignFeedToPlaylist(feedId, playlistId) {
+  try {
+    var res = await apiFetch("/api/feeds/" + feedId + "/playlist", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ playlistId: playlistId || null })
+    });
+    if (!res.ok) throw new Error("Failed");
+    var feed = allFeeds.find(function (f) { return f.id === feedId; });
+    if (feed) feed.playlistId = playlistId || null;
+    renderFeedList(allFeeds);
+  } catch (e) {
+    showToast(e.message || "Could not assign feed", true);
+  }
+}
+
+function populatePlaylistDropdown() {
+  var select = document.getElementById("feed-playlist-select");
+  if (!select) return;
+  var currentVal = select.value;
+  select.innerHTML = '<option value="">' + t("uncategorized") + '</option>';
+  allPlaylists.forEach(function (p) {
+    var opt = document.createElement("option");
+    opt.value = p.id;
+    opt.textContent = p.name;
+    select.appendChild(opt);
+  });
+  if (currentVal && allPlaylists.some(function (p) { return p.id === currentVal; })) {
+    select.value = currentVal;
   }
 }
 
@@ -452,65 +558,100 @@ function getFaviconHtml(feed) {
 
 function renderFeedList(feeds) {
   allFeeds = feeds;
-  const currentTitles = new Set(feeds.map((f) => f.title));
-  for (const title of excludedFeedTitles) {
+  var currentTitles = new Set(feeds.map(function (f) { return f.title; }));
+  excludedFeedTitles.forEach(function (title) {
     if (!currentTitles.has(title)) excludedFeedTitles.delete(title);
-  }
-
-  const list = document.getElementById("feed-list");
+  });
 
   var feedsToRender = allFeeds;
   if (currentFeedTab === "fav") {
     feedsToRender = allFeeds.filter(function (f) { return f.isFavorite; });
   }
 
+  var list = document.getElementById("feed-list");
+  populatePlaylistDropdown();
+
   if (feedsToRender.length === 0) {
     list.innerHTML =
-      '<li class="feed-item" style="color:#9ca3af; padding:1rem 1.25rem;">' + t("noSubscriptions") + '</li>';
+      '<div class="feed-item" style="color:#9ca3af; padding:1rem 1.25rem;">' + t("noSubscriptions") + '</div>';
     return;
   }
 
-  list.innerHTML = feedsToRender
-    .slice()
-    .sort(function (a, b) {
+  var grouped = {};
+  feedsToRender.forEach(function (f) {
+    var key = f.playlistId || "__uncategorized__";
+    if (!grouped[key]) grouped[key] = [];
+    grouped[key].push(f);
+  });
+
+  var keys = Object.keys(grouped).sort(function (a, b) {
+    if (a === "__uncategorized__") return 1;
+    if (b === "__uncategorized__") return -1;
+    var pa = allPlaylists.find(function (p) { return p.id === a; });
+    var pb = allPlaylists.find(function (p) { return p.id === b; });
+    return (pa ? pa.name : "").localeCompare(pb ? pb.name : "");
+  });
+
+  var html = "";
+
+  keys.forEach(function (key) {
+    var groupFeeds = grouped[key].slice().sort(function (a, b) {
       if (a.isFavorite !== b.isFavorite) return a.isFavorite ? -1 : 1;
       return (a.title || "").localeCompare(b.title || "");
-    })
-    .map(
-      (f) => `
-    <li class="feed-item feed-item-card">
-      <div class="feed-item-info">
-        <input type="checkbox" class="feed-toggle" data-id="${escapeAttr(f.id)}" ${excludedFeedTitles.has(f.title) ? "" : "checked"} title="${escapeAttr(t("showHideFeed"))}">
-        ${getFaviconHtml(f)}
-        <label class="feed-label">
-          <span class="feed-name" title="${escapeAttr(f.title)}">${escapeHtml(f.title)}</span>
-          <span class="feed-count">(${f.articleCount || 0})</span>
-        </label>
-      </div>
-      <div class="feed-item-options">
-        <button class="feed-favorite" data-id="${escapeAttr(f.id)}" title="${escapeAttr(t("toggleFavorite"))}">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="${f.isFavorite ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-          </svg>
-        </button>
-        <button class="feed-share" data-url="${escapeAttr(f.url)}" title="${escapeAttr(t("copyFeedLink"))}">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-          </svg>
-        </button>
-        <button class="feed-refresh" data-url="${escapeAttr(f.url)}" title="${escapeAttr(t("refreshThisFeed"))}">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="23 4 23 10 17 10"/>
-            <polyline points="1 20 1 14 7 14"/>
-            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-          </svg>
-        </button>
-        <button class="feed-delete" data-id="${escapeAttr(f.id)}" title="${escapeAttr(t("unsubscribe"))}">&times;</button>
-      </div>
-    </li>`
-    )
-    .join("");
+    });
+
+    var playlist = allPlaylists.find(function (p) { return p.id === key; });
+    var playlistName = playlist ? playlist.name : t("uncategorized");
+    var playlistId = playlist ? playlist.id : "";
+    var collapsed = collapsedPlaylists.has(key) ? " collapsed" : "";
+
+    html += '<div class="playlist-group' + collapsed + '" data-playlist-id="' + escapeAttr(playlistId) + '" data-group-key="' + escapeAttr(key) + '">';
+    html += '<div class="playlist-header">';
+    html += '<svg class="playlist-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
+    html += '<span class="playlist-name">' + escapeHtml(playlistName) + '</span>';
+    html += '<span class="playlist-count">(' + groupFeeds.length + ')</span>';
+    if (playlistId) {
+      html += '<button class="playlist-rename" title="' + escapeAttr(t("renamePlaylist")) + '">\u270E</button>';
+      html += '<button class="playlist-delete" title="' + escapeAttr(t("deletePlaylist")) + '">&times;</button>';
+    }
+    html += '</div>';
+    html += '<div class="playlist-feeds">';
+
+    groupFeeds.forEach(function (f) {
+      html += '<div class="feed-item feed-item-card" draggable="true" data-feed-id="' + escapeAttr(f.id) + '">';
+      html += '<div class="feed-item-info">';
+      html += '<input type="checkbox" class="feed-toggle" data-id="' + escapeAttr(f.id) + '" ' + (excludedFeedTitles.has(f.title) ? "" : "checked") + ' title="' + escapeAttr(t("showHideFeed")) + '">';
+      html += getFaviconHtml(f);
+      html += '<label class="feed-label">';
+      html += '<span class="feed-name" title="' + escapeAttr(f.title) + '">' + escapeHtml(f.title) + '</span>';
+      html += '<span class="feed-count">(' + (f.articleCount || 0) + ')</span>';
+      html += '</label>';
+      html += '</div>';
+      html += '<div class="feed-item-options">';
+      html += '<button class="feed-favorite" data-id="' + escapeAttr(f.id) + '" title="' + escapeAttr(t("toggleFavorite")) + '">';
+      html += '<svg width="14" height="14" viewBox="0 0 24 24" fill="' + (f.isFavorite ? "currentColor" : "none") + '" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>';
+      html += '</button>';
+      html += '<button class="feed-share" data-url="' + escapeAttr(f.url) + '" title="' + escapeAttr(t("copyFeedLink")) + '">';
+      html += '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>';
+      html += '</button>';
+      html += '<button class="feed-refresh" data-url="' + escapeAttr(f.url) + '" title="' + escapeAttr(t("refreshThisFeed")) + '">';
+      html += '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>';
+      html += '</button>';
+      html += '<select class="feed-playlist-select" data-feed-id="' + escapeAttr(f.id) + '" title="' + escapeAttr(t("moveToPlaylist")) + '">';
+      html += '<option value="">' + t("uncategorized") + '</option>';
+      allPlaylists.forEach(function (p) {
+        html += '<option value="' + escapeAttr(p.id) + '"' + (f.playlistId === p.id ? " selected" : "") + '>' + escapeHtml(p.name) + '</option>';
+      });
+      html += '</select>';
+      html += '<button class="feed-delete" data-id="' + escapeAttr(f.id) + '" title="' + escapeAttr(t("unsubscribe")) + '">&times;</button>';
+      html += '</div>';
+      html += '</div>';
+    });
+
+    html += '</div></div>';
+  });
+
+  list.innerHTML = html;
 }
 
 function toggleFeedVisibility(id) {
@@ -850,6 +991,7 @@ function setupAddFeedForm() {
   const textarea = document.getElementById("feed-url");
   const usernameInput = document.getElementById("feed-username");
   const passwordInput = document.getElementById("feed-password");
+  const playlistSelect = document.getElementById("feed-playlist-select");
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -865,6 +1007,7 @@ function setupAddFeedForm() {
 
     const username = usernameInput.value.trim() || null;
     const password = passwordInput.value.trim() || null;
+    const playlistId = playlistSelect ? (playlistSelect.value || null) : null;
 
     const btn = form.querySelector("button[type='submit']");
     btn.disabled = true;
@@ -874,7 +1017,7 @@ function setupAddFeedForm() {
       const res = await apiFetch("/api/feeds/batch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ urls: urls, username: username, password: password }),
+        body: JSON.stringify({ urls: urls, username: username, password: password, playlistId: playlistId }),
   });
 
   if (!res.ok) {
@@ -1250,6 +1393,93 @@ function setupListeners() {
     if (favoriteBtn) { toggleFavoriteFeed(favoriteBtn.dataset.id); return; }
     var shareBtn = e.target.closest(".feed-share");
     if (shareBtn) { copyFeedLink(shareBtn.dataset.url); return; }
+    var playlistHeader = e.target.closest(".playlist-header");
+    if (playlistHeader && !e.target.closest(".playlist-rename") && !e.target.closest(".playlist-delete")) {
+      var group = playlistHeader.closest(".playlist-group");
+      var key = group.dataset.groupKey;
+      if (group.classList.contains("collapsed")) {
+        group.classList.remove("collapsed");
+        collapsedPlaylists.delete(key);
+      } else {
+        group.classList.add("collapsed");
+        collapsedPlaylists.add(key);
+      }
+      localStorage.setItem("collapsedPlaylists", JSON.stringify(Array.from(collapsedPlaylists)));
+      return;
+    }
+    var renameBtn = e.target.closest(".playlist-rename");
+    if (renameBtn) {
+      var renameHeader = renameBtn.closest(".playlist-header");
+      var renameGroup = renameBtn.closest(".playlist-group");
+      var renameName = renameHeader.querySelector(".playlist-name");
+      var currentName = renameName.textContent;
+      var input = document.createElement("input");
+      input.type = "text";
+      input.className = "playlist-rename-input";
+      input.value = currentName;
+      input.addEventListener("keydown", function (ev) {
+        if (ev.key === "Enter") {
+          renamePlaylist(renameGroup.dataset.playlistId, input.value.trim());
+        }
+        if (ev.key === "Enter" || ev.key === "Escape") {
+          input.replaceWith(renameName);
+        }
+      });
+      input.addEventListener("blur", function () {
+        input.replaceWith(renameName);
+      });
+      renameName.replaceWith(input);
+      input.focus();
+      input.select();
+      return;
+    }
+    var delBtn = e.target.closest(".playlist-delete");
+    if (delBtn) {
+      var delGroup = delBtn.closest(".playlist-group");
+      deletePlaylist(delGroup.dataset.playlistId);
+      return;
+    }
+  });
+  document.getElementById("feed-list").addEventListener("change", function (e) {
+    var select = e.target.closest(".feed-playlist-select");
+    if (select) {
+      assignFeedToPlaylist(select.dataset.feedId, select.value);
+    }
+  });
+  document.getElementById("feed-list").addEventListener("dragstart", function (e) {
+    var feedItem = e.target.closest(".feed-item");
+    if (!feedItem || !feedItem.dataset.feedId) return;
+    e.dataTransfer.setData("text/plain", feedItem.dataset.feedId);
+    e.dataTransfer.effectAllowed = "move";
+    feedItem.style.opacity = "0.5";
+  });
+  document.getElementById("feed-list").addEventListener("dragend", function (e) {
+    var feedItem = e.target.closest(".feed-item");
+    if (feedItem) feedItem.style.opacity = "";
+  });
+  document.getElementById("feed-list").addEventListener("dragover", function (e) {
+    var header = e.target.closest(".playlist-header");
+    if (!header) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    header.classList.add("drag-over");
+  });
+  document.getElementById("feed-list").addEventListener("dragleave", function (e) {
+    var header = e.target.closest(".playlist-header");
+    if (!header) return;
+    header.classList.remove("drag-over");
+  });
+  document.getElementById("feed-list").addEventListener("drop", function (e) {
+    var header = e.target.closest(".playlist-header");
+    if (!header) return;
+    e.preventDefault();
+    header.classList.remove("drag-over");
+    var feedId = e.dataTransfer.getData("text/plain");
+    var group = header.closest(".playlist-group");
+    var playlistId = group.dataset.playlistId || null;
+    if (feedId && playlistId) {
+      assignFeedToPlaylist(feedId, playlistId);
+    }
   });
   document.getElementById("read-modal").querySelector(".modal-close").addEventListener("click", closeModal);
   document.getElementById("read-modal").querySelector(".modal-backdrop").addEventListener("click", closeModal);
@@ -1272,7 +1502,49 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.getElementById("read-modal").querySelector(".modal-close").addEventListener("click", closeModal);
   document.getElementById("read-modal").querySelector(".modal-backdrop").addEventListener("click", closeModal);
+
+  document.getElementById("btn-new-playlist").addEventListener("click", function () {
+    showInlinePlaylistCreator();
+  });
 });
+
+function showInlinePlaylistCreator() {
+  var existing = document.querySelector(".inline-playlist-creator");
+  if (existing) {
+    existing.querySelector("input").focus();
+    return;
+  }
+
+  var creator = document.createElement("div");
+  creator.className = "inline-playlist-creator";
+  creator.innerHTML = '<input type="text" placeholder="' + t("newPlaylist") + '" maxlength="50">' +
+    '<button class="btn btn-primary">' + t("add") + '</button>' +
+    '<button class="btn btn-secondary">' + t("close") + '</button>';
+
+  var sidebarHeader = document.querySelector(".sidebar-header");
+  sidebarHeader.insertAdjacentElement("afterend", creator);
+
+  var input = creator.querySelector("input");
+  var addBtn = creator.querySelector(".btn-primary");
+  var cancelBtn = creator.querySelector(".btn-secondary");
+
+  input.focus();
+
+  var submitCreate = async function () {
+    var name = input.value.trim();
+    if (!name) return;
+    await createPlaylist(name);
+    creator.remove();
+  };
+
+  addBtn.addEventListener("click", submitCreate);
+  input.addEventListener("keydown", function (ev) {
+    if (ev.key === "Enter") submitCreate();
+    if (ev.key === "Escape") creator.remove();
+  });
+  cancelBtn.addEventListener("click", function () { creator.remove(); });
+  input.addEventListener("blur", function () { setTimeout(function () { if (document.activeElement !== addBtn && document.activeElement !== cancelBtn) creator.remove(); }, 150); });
+}
 
 window.addEventListener("pageshow", function (event) {
   if (event.persisted) {
@@ -1282,18 +1554,30 @@ window.addEventListener("pageshow", function (event) {
 
 function filterSidebarFeeds() {
   var query = document.getElementById("feed-search-sidebar").value.trim().toLowerCase();
-  var items = document.querySelectorAll("#feed-list .feed-item");
+  var groups = document.querySelectorAll("#feed-list .playlist-group");
 
-  items.forEach(function (item) {
-    var titleSpan = item.querySelector(".feed-name");
-    if (!titleSpan) return;
+  groups.forEach(function (group) {
+    var items = group.querySelectorAll(".feed-item");
+    var visibleCount = 0;
 
-    var title = (titleSpan.textContent || "").toLowerCase();
+    items.forEach(function (item) {
+      var titleSpan = item.querySelector(".feed-name");
+      if (!titleSpan) return;
 
-    if (!query || title.indexOf(query) !== -1) {
-      item.style.display = "";
+      var title = (titleSpan.textContent || "").toLowerCase();
+
+      if (!query || title.indexOf(query) !== -1) {
+        item.style.display = "";
+        visibleCount++;
+      } else {
+        item.style.display = "none";
+      }
+    });
+
+    if (visibleCount === 0 && query) {
+      group.style.display = "none";
     } else {
-      item.style.display = "none";
+      group.style.display = "";
     }
   });
 }

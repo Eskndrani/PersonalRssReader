@@ -321,7 +321,7 @@ app.MapGet("/api/feeds", async (AppDbContext db, HttpContext http, FeedArticleSe
     }
 
     var feeds = await db.Feeds.Where(f => f.UserId == key || f.GuestSessionId == key).OrderBy(f => f.Title)
-        .Select(f => new { f.Id, f.Url, f.Title, f.Username, f.Password, f.IsFavorite, f.FaviconUrl, ArticleCount = db.Articles.Count(a => (a.UserId == key || a.GuestSessionId == key) && a.FeedTitle == f.Title) })
+        .Select(f => new { f.Id, f.Url, f.Title, f.Username, f.Password, f.IsFavorite, f.FaviconUrl, f.PlaylistId, ArticleCount = db.Articles.Count(a => (a.UserId == key || a.GuestSessionId == key) && a.FeedTitle == f.Title) })
         .ToListAsync();
     return Results.Ok(feeds);
 });
@@ -354,6 +354,7 @@ app.MapPost("/api/feeds", async (
         Title = title,
         Username = dto.Username,
         Password = dto.Password,
+        PlaylistId = dto.PlaylistId,
         FaviconUrl = GetFaviconUrl(dto.Url)
     };
     if (isGuest) feed.GuestSessionId = key;
@@ -393,15 +394,16 @@ app.MapPost("/api/feeds/batch", async (
         try
         {
             var title = await articleService.FetchFeedTitleAsync(url, dto.Username, dto.Password, ct);
-            var feed = new FeedSubscription
-            {
-                Id = Guid.NewGuid().ToString(),
-                Url = url,
-                Title = title,
-                Username = dto.Username,
-                Password = dto.Password,
-                FaviconUrl = GetFaviconUrl(url)
-            };
+                var feed = new FeedSubscription
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    Url = url,
+                    Title = title,
+                    Username = dto.Username,
+                    Password = dto.Password,
+                    PlaylistId = dto.PlaylistId,
+                    FaviconUrl = GetFaviconUrl(url)
+                };
             if (isGuest) feed.GuestSessionId = key;
             else feed.UserId = key;
             db.Feeds.Add(feed);
@@ -455,6 +457,93 @@ app.MapDelete("/api/feeds/{id}", async (string id, AppDbContext db, HttpContext 
     }
 
     return Results.NoContent();
+});
+
+app.MapGet("/api/playlists", async (AppDbContext db, HttpContext http) =>
+{
+    var key = GetUserKey(http);
+    var playlists = await db.Playlists
+        .Where(p => p.UserId == key || p.GuestSessionId == key)
+        .OrderBy(p => p.Name)
+        .Select(p => new { p.Id, p.Name, FeedCount = p.Feeds.Count })
+        .ToListAsync();
+    return Results.Ok(playlists);
+});
+
+app.MapPost("/api/playlists", async (CreatePlaylistDto dto, AppDbContext db, HttpContext http) =>
+{
+    var key = GetUserKey(http);
+    var isGuest = http.User.FindFirstValue(ClaimTypes.NameIdentifier) is null;
+
+    if (string.IsNullOrWhiteSpace(dto.Name))
+        return Results.BadRequest(new { error = "Playlist name is required." });
+
+    var playlist = new Playlist
+    {
+        Id = Guid.NewGuid().ToString(),
+        Name = dto.Name.Trim()
+    };
+    if (isGuest) playlist.GuestSessionId = key;
+    else playlist.UserId = key;
+
+    db.Playlists.Add(playlist);
+    await db.SaveChangesAsync();
+
+    return Results.Created($"/api/playlists/{playlist.Id}", new { playlist.Id, playlist.Name, FeedCount = 0 });
+});
+
+app.MapPut("/api/playlists/{id}", async (string id, UpdatePlaylistDto dto, AppDbContext db, HttpContext http) =>
+{
+    var key = GetUserKey(http);
+    var playlist = await db.Playlists
+        .FirstOrDefaultAsync(p => p.Id == id && (p.UserId == key || p.GuestSessionId == key));
+
+    if (playlist is null) return Results.NotFound();
+    if (string.IsNullOrWhiteSpace(dto.Name))
+        return Results.BadRequest(new { error = "Playlist name is required." });
+
+    playlist.Name = dto.Name.Trim();
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new { playlist.Id, playlist.Name });
+});
+
+app.MapDelete("/api/playlists/{id}", async (string id, AppDbContext db, HttpContext http) =>
+{
+    var key = GetUserKey(http);
+    var playlist = await db.Playlists
+        .Include(p => p.Feeds)
+        .FirstOrDefaultAsync(p => p.Id == id && (p.UserId == key || p.GuestSessionId == key));
+
+    if (playlist is null) return Results.NotFound();
+
+    foreach (var feed in playlist.Feeds)
+        feed.PlaylistId = null;
+
+    db.Playlists.Remove(playlist);
+    await db.SaveChangesAsync();
+
+    return Results.NoContent();
+});
+
+app.MapPatch("/api/feeds/{id}/playlist", async (string id, AssignPlaylistDto dto, AppDbContext db, HttpContext http) =>
+{
+    var key = GetUserKey(http);
+    var feed = await db.Feeds.FirstOrDefaultAsync(f => f.Id == id && (f.UserId == key || f.GuestSessionId == key));
+    if (feed is null) return Results.NotFound();
+
+    if (dto.PlaylistId is not null)
+    {
+        var playlist = await db.Playlists
+            .FirstOrDefaultAsync(p => p.Id == dto.PlaylistId && (p.UserId == key || p.GuestSessionId == key));
+        if (playlist is null)
+            return Results.BadRequest(new { error = "Playlist not found." });
+    }
+
+    feed.PlaylistId = dto.PlaylistId;
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new { feed.Id, feed.PlaylistId });
 });
 
 app.MapGet("/api/news", async (
@@ -780,7 +869,19 @@ public class FeedSubscription
     public string? UserId { get; set; }
     public string? GuestSessionId { get; set; }
     public string? FaviconUrl { get; set; }
+    public string? PlaylistId { get; set; }
+    public Playlist? Playlist { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public class Playlist
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string? UserId { get; set; }
+    public string? GuestSessionId { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public ICollection<FeedSubscription> Feeds { get; set; } = new List<FeedSubscription>();
 }
 
 public class AppDbContext : IdentityDbContext<IdentityUser>
@@ -788,6 +889,7 @@ public class AppDbContext : IdentityDbContext<IdentityUser>
     public DbSet<ArticleEntity> Articles => Set<ArticleEntity>();
     public DbSet<FeedSubscription> Feeds => Set<FeedSubscription>();
     public DbSet<UserAiUsage> AiUsage => Set<UserAiUsage>();
+    public DbSet<Playlist> Playlists => Set<Playlist>();
 
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
@@ -802,6 +904,15 @@ public class AppDbContext : IdentityDbContext<IdentityUser>
         });
 
         modelBuilder.Entity<FeedSubscription>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasOne(f => f.Playlist)
+                .WithMany(p => p.Feeds)
+                .HasForeignKey(f => f.PlaylistId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<Playlist>(entity =>
         {
             entity.HasKey(e => e.Id);
         });
@@ -822,11 +933,14 @@ public class UserAiUsage
     public int RequestCount { get; set; }
 }
 
-record FeedDto(string Url, string? Username = null, string? Password = null);
+record FeedDto(string Url, string? Username = null, string? Password = null, string? PlaylistId = null);
 record ParseUrlRequest(string Url);
-record BatchFeedDto(string[] Urls, string? Username = null, string? Password = null);
+record BatchFeedDto(string[] Urls, string? Username = null, string? Password = null, string? PlaylistId = null);
 record SummarizeDto(string Link, string TextContent);
 record ChatRequest(string Message);
 record RegisterRequest(string Email, string Password);
 record ResendRequest(string Email);
+record CreatePlaylistDto(string Name);
+record UpdatePlaylistDto(string Name);
+record AssignPlaylistDto(string? PlaylistId);
 record Article(int Id, string FeedTitle, string Title, string Link, DateTime PublishDate, string Summary, string? AudioUrl = null, string? ImageUrl = null, bool IsBookmarked = false, bool IsRead = false);
