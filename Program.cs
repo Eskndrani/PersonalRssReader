@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
+using System.Net;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Google;
 using Microsoft.AspNetCore.Authentication.OAuth;
@@ -85,10 +86,19 @@ builder.Services.AddHttpClient("FeedReader", client =>
 {
     client.DefaultRequestHeaders.UserAgent.ParseAdd(
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
-    client.DefaultRequestHeaders.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8");
+    client.DefaultRequestHeaders.Add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
     client.DefaultRequestHeaders.Add("Accept-Language", "en-US,en;q=0.5");
+    client.DefaultRequestHeaders.Add("Accept-Encoding", "gzip, deflate, br");
+    client.DefaultRequestHeaders.Add("Cache-Control", "no-cache");
     client.DefaultRequestHeaders.Add("Referer", "https://www.google.com/");
+    client.DefaultRequestVersion = new Version(2, 0);
+    client.DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrHigher;
     client.Timeout = TimeSpan.FromSeconds(30);
+})
+.ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+{
+    AllowAutoRedirect = true,
+    AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli
 });
 
 builder.Services.ConfigureHttpJsonOptions(options =>
@@ -287,14 +297,19 @@ app.MapPut("/api/settings", async (UpdateProfileDto dto, AppDbContext db, HttpCo
 
         if (profile is null) return Results.Json(new { error = "Settings not found." }, statusCode: 404);
 
-        if (dto.DisplayName is not null) profile.DisplayName = dto.DisplayName;
+        var isGuest = http.User.FindFirstValue(ClaimTypes.NameIdentifier) is null;
+
+        if (!isGuest)
+        {
+            if (dto.DisplayName is not null) profile.DisplayName = dto.DisplayName;
+            if (dto.ProfilePictureUrl is not null) profile.ProfilePictureUrl = dto.ProfilePictureUrl;
+            if (dto.EmailFavoriteFeeds.HasValue) profile.EmailFavoriteFeeds = dto.EmailFavoriteFeeds.Value;
+        }
         if (dto.Bio is not null) profile.Bio = dto.Bio;
-        if (dto.ProfilePictureUrl is not null) profile.ProfilePictureUrl = dto.ProfilePictureUrl;
         if (dto.CoverPhotoUrl is not null) profile.CoverPhotoUrl = dto.CoverPhotoUrl;
         if (dto.SocialLinks is not null) profile.SocialLinks = dto.SocialLinks;
         if (dto.KeepArticlesForDays.HasValue) profile.KeepArticlesForDays = dto.KeepArticlesForDays.Value;
         if (dto.RefreshIntervalMinutes.HasValue) profile.RefreshIntervalMinutes = dto.RefreshIntervalMinutes.Value;
-        if (dto.EmailFavoriteFeeds.HasValue) profile.EmailFavoriteFeeds = dto.EmailFavoriteFeeds.Value;
 
         await db.SaveChangesAsync();
 
@@ -352,13 +367,28 @@ app.MapGet("/api/community/posts", async (AppDbContext db, HttpContext http) =>
         .Select(b => b.BlockedId)
         .ToListAsync();
 
+    var blockedByIds = await db.UserBlocks
+        .Where(b => b.BlockedId == key)
+        .Select(b => b.BlockerId)
+        .ToListAsync();
+
+    var allBlocked = blockedIds.Concat(blockedByIds).Distinct().ToList();
+
     var posts = await db.CommunityPosts
         .Include(p => p.Reactions)
         .Include(p => p.Comments)
-        .Where(p => !blockedIds.Contains(p.AuthorId))
+        .Where(p => !allBlocked.Contains(p.AuthorId))
         .OrderByDescending(p => p.CreatedAt)
         .Take(50)
         .ToListAsync();
+
+    foreach (var post in posts)
+    {
+        post.Comments = post.Comments
+            .Where(c => !allBlocked.Contains(c.AuthorId))
+            .OrderBy(c => c.CreatedAt)
+            .ToList();
+    }
 
     var result = posts.Select(p => new
     {
@@ -441,6 +471,21 @@ app.MapDelete("/api/community/posts/{id}", async (string id, AppDbContext db, Ht
     return Results.NoContent();
 });
 
+app.MapPut("/api/community/posts/{id}", async (string id, CreatePostDto dto, AppDbContext db, HttpContext http) =>
+{
+    var key = GetUserKey(http);
+    var post = await db.CommunityPosts.FirstOrDefaultAsync(p => p.Id == id && p.AuthorId == key);
+    if (post is null) return Results.NotFound();
+
+    if (string.IsNullOrWhiteSpace(dto.Content))
+        return Results.BadRequest(new { error = "Content is required." });
+
+    post.Content = dto.Content.Trim();
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new { post.Id, post.Content });
+});
+
 app.MapPost("/api/community/posts/{id}/react", async (string id, ReactDto dto, AppDbContext db, HttpContext http) =>
 {
     var key = GetUserKey(http);
@@ -450,8 +495,19 @@ app.MapPost("/api/community/posts/{id}/react", async (string id, ReactDto dto, A
     var post = await db.CommunityPosts.FirstOrDefaultAsync(p => p.Id == id);
     if (post is null) return Results.NotFound();
 
-    db.PostReactions.Add(new PostReaction { PostId = id, UserId = key, ReactionType = dto.ReactionType });
-    await db.SaveChangesAsync();
+    var existing = await db.PostReactions
+        .FirstOrDefaultAsync(r => r.PostId == id && r.UserId == key && r.ReactionType == dto.ReactionType);
+
+    if (existing is not null)
+    {
+        db.PostReactions.Remove(existing);
+        await db.SaveChangesAsync();
+    }
+    else
+    {
+        db.PostReactions.Add(new PostReaction { PostId = id, UserId = key, ReactionType = dto.ReactionType });
+        await db.SaveChangesAsync();
+    }
 
     var counts = await db.PostReactions
         .Where(r => r.PostId == id)
@@ -644,21 +700,47 @@ app.MapPost("/api/auth/resend-verification", async (
     return Results.Ok(new { message = "A new verification link has been sent to your email." });
 });
 
-(string Title, string Url)[] GuestDefaultFeeds = {
-    ("Hacker News", "https://news.ycombinator.com/rss"),
-    ("Herb Sutter on Software", "https://herbsutter.com/feed/"),
-    ("Hackaday", "https://hackaday.com/blog/feed/")
+(string Title, string Url, string Category)[] DefaultFeeds = {
+    ("Hacker News", "https://news.ycombinator.com/rss", "Tech & Engineering"),
+    ("Herb Sutter on Software", "https://herbsutter.com/feed/", "Tech & Engineering"),
+    ("Hackaday", "https://hackaday.com/blog/feed/", "Tech & Engineering"),
+    ("Arduino Blog", "https://blog.arduino.cc/feed/", "Tech & Engineering"),
+    ("BBC Arabic", "http://feeds.bbci.co.uk/arabic/rss.xml", "Global News"),
+    ("Elbalad News", "https://www.elbalad.news/rss.aspx", "Global News")
 };
 
-(string Url, string Playlist)[] GuestFeedMappings = {
-    ("https://hackaday.com/feed/", "Tech & Maker"),
-    ("https://blog.arduino.cc/feed/", "Tech & Maker"),
-    ("https://www.theverge.com/rss/index.xml", "Tech & Maker"),
-    ("https://feeds.bbci.co.uk/news/world/rss.xml", "World News"),
-    ("https://www.elbalad.news/rss.aspx", "World News"),
-    ("http://feeds.bbci.co.uk/arabic/rss.xml", "World News"),
-    ("https://xkcd.com/rss.xml", "Fun")
-};
+async Task SeedDefaultFeedsAsync(AppDbContext db, string? userId, string? guestSessionId)
+{
+    var categories = DefaultFeeds.Select(f => f.Category).Distinct();
+    var playlistMap = new Dictionary<string, string>();
+    foreach (var cat in categories)
+    {
+        var playlist = new Playlist
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = cat,
+            UserId = userId,
+            GuestSessionId = guestSessionId
+        };
+        db.Playlists.Add(playlist);
+        playlistMap[cat] = playlist.Id;
+    }
+
+    foreach (var (title, url, category) in DefaultFeeds)
+    {
+        db.Feeds.Add(new FeedSubscription
+        {
+            Id = Guid.NewGuid().ToString(),
+            Url = url,
+            Title = title,
+            UserId = userId,
+            GuestSessionId = guestSessionId,
+            PlaylistId = playlistMap[category],
+            FaviconUrl = GetFaviconUrl(url)
+        });
+    }
+    await db.SaveChangesAsync();
+}
 
 app.MapGet("/api/feeds", async (AppDbContext db, HttpContext http, FeedArticleService articleService) =>
 {
@@ -667,23 +749,10 @@ app.MapGet("/api/feeds", async (AppDbContext db, HttpContext http, FeedArticleSe
 
     var feedCount = await db.Feeds.CountAsync(f => f.UserId == key || f.GuestSessionId == key);
     if (isGuest && feedCount == 0)
-    {
-        foreach (var (title, url) in GuestDefaultFeeds)
-        {
-            db.Feeds.Add(new FeedSubscription
-            {
-                Id = Guid.NewGuid().ToString(),
-                Url = url,
-                Title = title,
-                GuestSessionId = key,
-                FaviconUrl = GetFaviconUrl(url)
-            });
-        }
-        await db.SaveChangesAsync();
-    }
+        await SeedDefaultFeedsAsync(db, null, key);
 
     var feeds = await db.Feeds.Where(f => f.UserId == key || f.GuestSessionId == key).OrderBy(f => f.Title)
-        .Select(f => new { f.Id, f.Url, f.Title, f.Username, f.Password, f.IsFavorite, f.FaviconUrl, f.PlaylistId, ArticleCount = db.Articles.Count(a => (a.UserId == key || a.GuestSessionId == key) && a.FeedTitle == f.Title) })
+        .Select(f => new { f.Id, f.Url, f.Title, f.Username, f.Password, f.IsFavorite, f.FaviconUrl, f.PlaylistId, ArticleCount = db.Articles.Count(a => (a.UserId == key || a.GuestSessionId == key) && a.FeedTitle == f.Title && !a.IsRead) })
         .ToListAsync();
     return Results.Ok(feeds);
 });
@@ -694,10 +763,14 @@ app.MapPost("/api/feeds", async (
 {
     var key = GetUserKey(http);
     var isGuest = http.User.FindFirstValue(ClaimTypes.NameIdentifier) is null;
-    var normalizedUrl = dto.Url.Trim().TrimEnd('/').ToLowerInvariant();
+    var normalizedUrl = NormalizeUrl(dto.Url);
 
-    if (await db.Feeds.AnyAsync(f => (f.UserId == key || f.GuestSessionId == key) && f.Url.Trim().TrimEnd('/').ToLower() == normalizedUrl))
-        return Results.Conflict(new { message = "You have already subscribed to this feed." });
+    var userFeedUrls = await db.Feeds
+        .Where(f => (f.UserId == key || f.GuestSessionId == key))
+        .Select(f => f.Url)
+        .ToListAsync(ct);
+    if (userFeedUrls.Any(u => NormalizeUrl(u) == normalizedUrl))
+        return Results.Conflict(new { message = "This feed is already in your subscriptions." });
 
     string title;
     try
@@ -725,6 +798,33 @@ app.MapPost("/api/feeds", async (
     db.Feeds.Add(feed);
     await db.SaveChangesAsync();
 
+    try
+    {
+        var articles = await articleService.FetchArticlesAsync(dto.Url, title, dto.Username, dto.Password, ct);
+        if (articles.Count > 0)
+        {
+            var existingLinks = await db.Articles
+                .Where(a => a.UserId == key || a.GuestSessionId == key)
+                .Select(a => a.Link)
+                .ToListAsync(ct);
+            var existingSet = new HashSet<string>(existingLinks);
+            var newArticles = articles
+                .Where(a => !existingSet.Contains(a.Link))
+                .ToList();
+            foreach (var a in newArticles)
+            {
+                a.UserId = isGuest ? null : key;
+                a.GuestSessionId = isGuest ? key : null;
+            }
+            if (newArticles.Count > 0)
+            {
+                db.Articles.AddRange(newArticles);
+                await db.SaveChangesAsync(ct);
+            }
+        }
+    }
+    catch (Exception) { }
+
     return Results.Created($"/api/feeds/{feed.Id}", feed);
 });
 
@@ -735,10 +835,10 @@ app.MapPost("/api/feeds/batch", async (
     var key = GetUserKey(http);
     var isGuest = http.User.FindFirstValue(ClaimTypes.NameIdentifier) is null;
     var existingUrls = await db.Feeds.Where(f => f.UserId == key || f.GuestSessionId == key).Select(f => f.Url).ToListAsync();
-    var existingSet = new HashSet<string>(existingUrls.Select(u => u.Trim().TrimEnd('/').ToLowerInvariant()));
+    var existingSet = new HashSet<string>(existingUrls.Select(u => NormalizeUrl(u)));
 
     var newUrls = dto.Urls
-        .Select(u => u.Trim().TrimEnd('/').ToLowerInvariant())
+        .Select(u => NormalizeUrl(u))
         .Where(u => !string.IsNullOrEmpty(u) && !existingSet.Contains(u))
         .Distinct()
         .ToArray();
@@ -786,7 +886,62 @@ app.MapPost("/api/feeds/batch", async (
     if (added > 0)
         await db.SaveChangesAsync();
 
+    if (added > 0)
+    {
+        var newFeeds = await db.Feeds
+            .Where(f => (f.UserId == key || f.GuestSessionId == key))
+            .OrderByDescending(f => f.CreatedAt)
+            .Take(added)
+            .ToListAsync(ct);
+        foreach (var nf in newFeeds)
+        {
+            try
+            {
+                var articles = await articleService.FetchArticlesAsync(nf.Url, nf.Title, nf.Username, nf.Password, ct);
+                if (articles.Count > 0)
+                {
+                    var existingLinks = await db.Articles
+                        .Where(a => a.UserId == key || a.GuestSessionId == key)
+                        .Select(a => a.Link)
+                        .ToListAsync(ct);
+                    var syncExistingSet = new HashSet<string>(existingLinks);
+                    var newArticles = articles
+                        .Where(a => !syncExistingSet.Contains(a.Link))
+                        .ToList();
+                    foreach (var a in newArticles)
+                    {
+                        a.UserId = isGuest ? null : key;
+                        a.GuestSessionId = isGuest ? key : null;
+                    }
+                    if (newArticles.Count > 0)
+                    {
+                        db.Articles.AddRange(newArticles);
+                        await db.SaveChangesAsync(ct);
+                    }
+                }
+            }
+            catch (Exception) { }
+        }
+    }
+
     return Results.Ok(new { Added = added, Failed = failed });
+});
+
+app.MapPost("/api/feeds/seed-defaults", async (AppDbContext db, HttpContext http) =>
+{
+    var key = GetUserKey(http);
+    var isGuest = http.User.FindFirstValue(ClaimTypes.NameIdentifier) is null;
+
+    var feedCount = await db.Feeds.CountAsync(f => f.UserId == key || f.GuestSessionId == key);
+    if (feedCount > 0)
+        return Results.BadRequest(new { error = "You already have subscribed feeds." });
+
+    if (isGuest)
+        await SeedDefaultFeedsAsync(db, null, key);
+    else
+        await SeedDefaultFeedsAsync(db, key, null);
+
+    return Results.Ok(new { seeded = true });
 });
 
 app.MapPatch("/api/feeds/{id}/favorite", async (string id, AppDbContext db, HttpContext http) =>
@@ -946,12 +1101,23 @@ app.MapPatch("/api/feeds/{id}/playlist", async (string id, AssignPlaylistDto dto
 
 app.MapGet("/api/news", async (
     AppDbContext db, FeedArticleService articleService,
-    HttpContext http, [FromQuery] int? retentionDays, CancellationToken ct) =>
+    HttpContext http, [FromQuery] int? retentionDays, [FromQuery] string? playlist, CancellationToken ct) =>
 {
     try
     {
         var userId = GetUserKey(http);
-        var feeds = await db.Feeds.Where(f => f.UserId == userId || f.GuestSessionId == userId).ToListAsync();
+        var feeds = await db.Feeds
+            .Where(f => f.UserId == userId || f.GuestSessionId == userId)
+            .ToListAsync(ct);
+
+        if (!string.IsNullOrEmpty(playlist))
+        {
+            var playlistIds = await db.Playlists
+                .Where(p => (p.UserId == userId || p.GuestSessionId == userId) && p.Name == playlist)
+                .Select(p => p.Id)
+                .ToListAsync(ct);
+            feeds = feeds.Where(f => f.PlaylistId != null && playlistIds.Contains(f.PlaylistId)).ToList();
+        }
 
         var tasks = feeds.Select(async feed =>
         {
@@ -1211,6 +1377,9 @@ static string? GetFaviconUrl(string feedUrl)
     if (!Uri.TryCreate(feedUrl, UriKind.Absolute, out var uri)) return null;
     return $"https://www.google.com/s2/favicons?domain={uri.Host}&sz=64";
 }
+
+static string NormalizeUrl(string url) =>
+    url.Trim().TrimEnd('/').ToLowerInvariant().Replace("https://", "http://");
 
 static (string userId, int limit, string errMsg) GetQuotaParams(HttpContext http)
 {

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Personal RSS Reader</title>
-  <link rel="icon" type="image/svg+xml" href="/logo.svg">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Cpath fill='%238a94a6' d='M96 96c0-35.3 28.7-64 64-64H448c35.3 0 64 28.7 64 64V416c0 35.3-28.7 64-64 64H80c-44.2 0-80-35.8-80-80V128c0-17.7 14.3-32 32-32s32 14.3 32 32V400c0 8.8 7.2 16 16 16s16-7.2 16-16V96zm64 24v80c0 13.3 10.7 24 24 24H296c13.3 0 24-10.7 24-24V120c0-13.3-10.7-24-24-24H184c-13.3 0-24 10.7-24 24zm208-8c0 8.8 7.2 16 16 16h64c8.8 0 16-7.2 16-16s-7.2-16-16-16H384c-8.8 0-16 7.2-16 16zm0 96c0 8.8 7.2 16 16 16h64c8.8 0 16-7.2 16-16s-7.2-16-16-16H384c-8.8 0-16 7.2-16 16zM160 304c0 8.8 7.2 16 16 16H432c8.8 0 16-7.2 16-16s-7.2-16-16-16H176c-8.8 0-16 7.2-16 16zm0 96c0 8.8 7.2 16 16 16H432c8.8 0 16-7.2 16-16s-7.2-16-16-16H176c-8.8 0-16 7.2-16 16z'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/site.css">
 </head>
 <body>
@@ -166,10 +166,11 @@
 
       <div id="community-section" style="display:none;">
         <div class="community-create">
-          <textarea id="community-post-input" class="community-post-input" placeholder="Share something with the community..." rows="2" maxlength="500"></textarea>
+          <textarea id="community-post-input" class="community-post-input" placeholder="Share something with the community..." rows="2" maxlength="500" dir="auto"></textarea>
           <div class="community-create-actions">
             <input type="url" id="community-media-url" class="community-media-input" placeholder="Image URL (optional)">
             <button id="btn-community-post" class="btn btn-primary">Post</button>
+            <button id="btn-community-emoji" class="btn-emoji-toggle" title="Add emoji">&#x1F600;</button>
           </div>
         </div>
         <div id="community-feed" class="community-feed"></div>
@@ -197,47 +198,30 @@
 
   <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
-  <div id="settings-modal" class="modal" style="display:none;">
-    <div class="modal-backdrop"></div>
-    <div class="modal-content" style="max-width:520px;">
-      <button class="modal-close" data-i18n-title="close" title="Close">&times;</button>
-      <h2 style="margin-bottom:1rem;">Settings</h2>
-      <div class="settings-section">
-        <h3 class="settings-section-title">Profile</h3>
-        <div class="form-group"><label>Display Name</label><input type="text" id="set-name" maxlength="100"></div>
-        <div class="form-group"><label>Bio</label><textarea id="set-bio" maxlength="300" rows="2"></textarea></div>
-        <div class="form-group"><label>Profile Picture URL</label><input type="url" id="set-avatar" placeholder="https://"></div>
-        <div class="form-group"><label>Cover Photo URL</label><input type="url" id="set-cover" placeholder="https://"></div>
-        <div class="form-group"><label>Social Links (JSON)</label><textarea id="set-social" rows="2" placeholder='[{"label":"GitHub","url":"..."}]'></textarea></div>
-      </div>
-      <div class="settings-section">
-        <h3 class="settings-section-title">Preferences</h3>
-        <div class="form-group"><label>Keep articles for (days)</label><select id="set-retention"><option value="7">1 Week</option><option value="14">2 Weeks</option><option value="30">1 Month</option><option value="60">2 Months</option><option value="9999">Forever</option></select></div>
-        <div class="form-group"><label>Auto-refresh interval (minutes)</label><select id="set-refresh"><option value="15">15 min</option><option value="30">30 min</option><option value="60">1 hour</option><option value="120">2 hours</option></select></div>
-        <div class="form-group"><label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;"><input type="checkbox" id="set-email-fav"> Email me my favorite feeds</label></div>
-      </div>
-      <div class="settings-section" id="settings-blocked-section" style="display:none;">
-        <h3 class="settings-section-title">Blocked Users</h3>
-        <div id="settings-blocked-list" class="blocked-users-list"></div>
-      </div>
-      <div style="display:flex;gap:0.5rem;margin-top:1rem;">
-        <button id="btn-save-settings" class="btn btn-primary" style="flex:1;">Save</button>
-        <button id="btn-close-settings" class="btn btn-secondary">Cancel</button>
-      </div>
-    </div>
-  </div>
-
   <div id="add-feed-modal" class="modal" style="display:none;">
     <div class="modal-backdrop"></div>
     <div class="modal-content" style="max-width:480px;">
       <button class="modal-close" data-i18n-title="close" title="Close">&times;</button>
       <h2 style="margin-bottom:1rem;">Add New Feed</h2>
-      <div class="form-group"><label>Feed URL(s) — one per line</label><textarea id="modal-feed-url" rows="3" placeholder="https://..." required></textarea></div>
+      <div class="form-group"><label>Feed URL(s) — one per line</label><textarea id="modal-feed-url" rows="3" placeholder="https://..." dir="auto" required></textarea></div>
       <div class="form-group" style="display:flex;gap:0.5rem;"><input type="text" id="modal-feed-username" placeholder="Username (optional)"><input type="password" id="modal-feed-password" placeholder="Password (optional)"></div>
       <div class="form-group"><select id="modal-feed-playlist"><option value="">No Playlist</option></select></div>
+      <div id="recommended-section" style="margin-bottom:0.5rem;"></div>
       <div style="display:flex;gap:0.5rem;margin-top:0.5rem;">
         <button id="btn-submit-feed" class="btn btn-primary" style="flex:1;">Add Feed</button>
         <button id="btn-close-add-feed" class="btn btn-secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="onboarding-prompt-modal" class="modal" style="display:none;">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content" style="max-width:420px;text-align:center;">
+      <h2 style="margin-bottom:0.75rem;">Welcome!</h2>
+      <p style="color:var(--text-secondary);font-size:0.85rem;line-height:1.5;margin-bottom:1.25rem;">Your feed list is empty! Would you like to start with a curated list of Tech and News feeds?</p>
+      <div style="display:flex;gap:0.5rem;justify-content:center;">
+        <button id="btn-onboarding-accept" class="btn btn-primary">Add Default Feeds</button>
+        <button id="btn-onboarding-skip" class="btn btn-secondary">Skip for now</button>
       </div>
     </div>
   </div>
@@ -294,6 +278,7 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script type="module" src="https://unpkg.com/emoji-picker-element@1"></script>
   <script src="/site.js"></script>
 </body>
 </html>

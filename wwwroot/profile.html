@@ -24,17 +24,13 @@
     .profile-bio { font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.35rem; line-height: 1.5; }
     .profile-email { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.15rem; }
 
-    .profile-edit-btn { display: inline-flex; align-items: center; gap: 0.25rem; margin-top: 0.75rem; padding: 0.35rem 0.85rem; border: 1px solid var(--border-input); border-radius: var(--radius-pill); background: none; color: var(--text-secondary); cursor: pointer; font-size: 0.72rem; transition: var(--transition); font-family: inherit; }
-    .profile-edit-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+    .profile-tabs { display: flex; border-bottom: 1px solid var(--border); padding: 0 1.5rem; }
+    .profile-tab { padding: 0.6rem 1rem; border: none; background: none; color: var(--text-muted); font-size: 0.78rem; font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent; transition: var(--transition); font-family: inherit; }
+    .profile-tab:hover { color: var(--text-primary); }
+    .profile-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
-    .profile-edit-form { display: none; padding: 0 1.5rem 1rem; }
-    .profile-edit-form.open { display: block; }
-    .profile-edit-form .form-group { margin-bottom: 0.75rem; }
-    .profile-edit-form label { display: block; font-size: 0.7rem; font-weight: 500; color: var(--text-muted); margin-bottom: 0.25rem; }
-    .profile-edit-form input, .profile-edit-form textarea { width: 100%; padding: 0.5rem 0.75rem; border: 1px solid var(--border-input); border-radius: var(--radius-sm); font-size: 0.8rem; background: var(--bg-input); color: var(--text-primary); font-family: inherit; transition: var(--transition); }
-    .profile-edit-form input:focus, .profile-edit-form textarea:focus { outline: none; border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--accent-glow); }
-    .profile-edit-form textarea { resize: vertical; min-height: 60px; }
-    .profile-edit-actions { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
+    .profile-tab-content { display: none; padding: 1.25rem 1.5rem; }
+    .profile-tab-content.active { display: block; }
 
     .profile-stats { display: flex; gap: 1.5rem; padding: 1rem 1.5rem; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
     .profile-stat { text-align: center; }
@@ -64,6 +60,26 @@
     .profile-social-links { display: flex; gap: 0.5rem; margin-top: 0.5rem; flex-wrap: wrap; }
     .profile-social-link { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.25rem 0.65rem; border: 1px solid var(--border-input); border-radius: var(--radius-pill); font-size: 0.7rem; color: var(--text-secondary); text-decoration: none; transition: var(--transition); }
     .profile-social-link:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+
+    .guest-notice { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.75rem 1rem; margin-bottom: 1rem; font-size: 0.75rem; color: var(--text-muted); line-height: 1.5; }
+    .form-group { margin-bottom: 0.6rem; }
+    .form-group label { display: block; font-size: 0.7rem; font-weight: 500; color: var(--text-muted); margin-bottom: 0.2rem; }
+    .form-group input, .form-group textarea, .form-group select { width: 100%; padding: 0.45rem 0.65rem; border: 1px solid var(--border-input); border-radius: var(--radius-sm); font-size: 0.78rem; background: var(--bg-input); color: var(--text-primary); font-family: inherit; transition: var(--transition); }
+    .form-group input:focus, .form-group textarea:focus, .form-group select:focus { outline: none; border-color: var(--border-focus); box-shadow: 0 0 0 2px var(--accent-glow); }
+    .form-group textarea { resize: vertical; min-height: 50px; }
+    .form-group input[type="checkbox"] { width: auto; accent-color: var(--accent); }
+    .form-group input:disabled, .form-group textarea:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .blocked-users-list { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+    .blocked-user-tag { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.25rem 0.6rem; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-pill); font-size: 0.72rem; color: var(--text-secondary); }
+    .blocked-user-tag button { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.85rem; line-height: 1; padding: 0; transition: var(--transition); }
+    .blocked-user-tag button:hover { color: var(--danger); }
+
+    .btn-primary { padding: 0.45rem 1rem; border: none; border-radius: var(--radius-sm); background: var(--accent); color: #fff; font-size: 0.78rem; font-weight: 600; cursor: pointer; transition: var(--transition); font-family: inherit; }
+    .btn-primary:hover { opacity: 0.85; }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-secondary { padding: 0.45rem 1rem; border: 1px solid var(--border-input); border-radius: var(--radius-sm); background: none; color: var(--text-secondary); font-size: 0.78rem; cursor: pointer; transition: var(--transition); font-family: inherit; }
+    .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
   </style>
 </head>
 <body style="background:var(--bg-deep);font-family:var(--font);color:var(--text-primary)">
@@ -85,10 +101,16 @@
       <div class="profile-email" id="profile-email-display"></div>
       <div class="profile-bio" id="profile-bio"></div>
       <div class="profile-social-links" id="profile-social-links"></div>
-      <button class="profile-edit-btn" id="profile-edit-btn">&#9998; Edit Profile</button>
     </div>
 
-    <div class="profile-edit-form" id="profile-edit-form">
+    <div class="profile-tabs">
+      <button class="profile-tab active" data-tab="info">Profile Info</button>
+      <button class="profile-tab" data-tab="preferences">Preferences</button>
+      <button class="profile-tab" data-tab="blocked">Blocked Users</button>
+    </div>
+
+    <div class="profile-tab-content active" id="tab-info">
+      <div class="guest-notice" id="guest-notice" style="display:none;">Create an account to customize your profile and receive email digests.</div>
       <div class="form-group">
         <label>Display Name</label>
         <input type="text" id="edit-name" maxlength="100" placeholder="Your display name">
@@ -109,10 +131,47 @@
         <label>Social Links (JSON)</label>
         <textarea id="edit-social" maxlength="1000" placeholder='[{"label":"GitHub","url":"https://github.com/..."}]'></textarea>
       </div>
-      <div class="profile-edit-actions">
-        <button class="btn btn-primary" id="btn-save-profile">Save</button>
-        <button class="btn btn-secondary" id="btn-cancel-edit">Cancel</button>
+      <div style="display:flex;gap:0.5rem;margin-top:0.75rem;">
+        <button class="btn-primary" id="btn-save-profile">Save</button>
+        <button class="btn-secondary" id="btn-cancel-profile">Cancel</button>
       </div>
+    </div>
+
+    <div class="profile-tab-content" id="tab-preferences">
+      <div class="form-group">
+        <label>Keep articles for (days)</label>
+        <select id="set-retention">
+          <option value="7">1 Week</option>
+          <option value="14">2 Weeks</option>
+          <option value="30">1 Month</option>
+          <option value="60">2 Months</option>
+          <option value="9999">Forever</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Auto-refresh interval (minutes)</label>
+        <select id="set-refresh">
+          <option value="15">15 min</option>
+          <option value="30">30 min</option>
+          <option value="60">1 hour</option>
+          <option value="120">2 hours</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+          <input type="checkbox" id="set-email-fav"> Email me my favorite feeds
+        </label>
+      </div>
+      <div style="display:flex;gap:0.5rem;margin-top:0.75rem;">
+        <button class="btn-primary" id="btn-save-prefs">Save</button>
+      </div>
+    </div>
+
+    <div class="profile-tab-content" id="tab-blocked">
+      <div id="blocked-section" style="display:none;">
+        <div class="blocked-users-list" id="blocked-list"></div>
+      </div>
+      <p id="blocked-empty" style="color:var(--text-muted);font-size:0.82rem;">No blocked users.</p>
     </div>
 
     <div class="profile-stats" id="profile-stats">
@@ -264,6 +323,27 @@
       document.getElementById("edit-avatar").value = p.profilePictureUrl || "";
       document.getElementById("edit-cover").value = p.coverPhotoUrl || "";
       document.getElementById("edit-social").value = p.socialLinks || "";
+      document.getElementById("set-retention").value = String(p.keepArticlesForDays || 30);
+      document.getElementById("set-refresh").value = String(p.refreshIntervalMinutes || 30);
+      document.getElementById("set-email-fav").checked = p.emailFavoriteFeeds || false;
+
+      if (isGuest) {
+        document.getElementById("guest-notice").style.display = "";
+        document.getElementById("edit-name").disabled = true;
+        document.getElementById("edit-avatar").disabled = true;
+        document.getElementById("set-email-fav").disabled = true;
+      }
+
+      if (p.blockedUsers && p.blockedUsers.length > 0) {
+        document.getElementById("blocked-section").style.display = "";
+        document.getElementById("blocked-empty").style.display = "none";
+        document.getElementById("blocked-list").innerHTML = p.blockedUsers.map(function (b) {
+          return '<div class="blocked-user-tag"><span>' + escapeHtml(b.blockedId) + '</span><button class="blocked-user-unblock" data-unblock="' + escapeAttr(b.blockedId) + '">&times;</button></div>';
+        }).join("");
+      } else {
+        document.getElementById("blocked-section").style.display = "none";
+        document.getElementById("blocked-empty").style.display = "";
+      }
     }
 
     async function loadInsights() {
@@ -314,6 +394,15 @@
       }
     }
 
+    function switchTab(tabName) {
+      document.querySelectorAll(".profile-tab").forEach(function (t) { t.classList.remove("active"); });
+      document.querySelectorAll(".profile-tab-content").forEach(function (c) { c.classList.remove("active"); });
+      var tabBtn = document.querySelector('.profile-tab[data-tab="' + tabName + '"]');
+      if (tabBtn) tabBtn.classList.add("active");
+      var tabContent = document.getElementById("tab-" + tabName);
+      if (tabContent) tabContent.classList.add("active");
+    }
+
     function escapeHtml(str) {
       var div = document.createElement("div");
       div.textContent = str ?? "";
@@ -324,54 +413,91 @@
       return (str ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     }
 
+    async function saveProfile() {
+      var body = {
+        displayName: document.getElementById("edit-name").value.trim() || null,
+        bio: document.getElementById("edit-bio").value.trim() || null,
+        profilePictureUrl: document.getElementById("edit-avatar").value.trim() || null,
+        coverPhotoUrl: document.getElementById("edit-cover").value.trim() || null,
+        socialLinks: document.getElementById("edit-social").value.trim() || null
+      };
+      if (body.socialLinks) {
+        try { JSON.parse(body.socialLinks); } catch (e) {
+          showToast("Social Links must be valid JSON.", true);
+          return;
+        }
+      }
+      try {
+        var res = await apiFetch("/api/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        currentProfile = await res.json();
+        renderProfile(currentProfile);
+        showToast("Profile saved.", false);
+      } catch (e) {
+        showToast(e.message || "Could not save profile.", true);
+      }
+    }
+
+    async function savePreferences() {
+      try {
+        var body = {
+          keepArticlesForDays: parseInt(document.getElementById("set-retention").value) || 30,
+          refreshIntervalMinutes: parseInt(document.getElementById("set-refresh").value) || 30,
+          emailFavoriteFeeds: document.getElementById("set-email-fav").checked
+        };
+        var res = await apiFetch("/api/settings", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        currentProfile = await res.json();
+        localStorage.setItem("retentionDays", String(currentProfile.keepArticlesForDays || 30));
+        showToast("Preferences saved.", false);
+      } catch (e) {
+        showToast(e.message || "Could not save preferences.", true);
+      }
+    }
+
+    async function unblockUser(blockedId) {
+      try {
+        await apiFetch("/api/users/" + blockedId + "/block", { method: "DELETE" });
+        await loadProfile();
+        showToast("User unblocked.", false);
+      } catch (e) {
+        showToast(e.message || "Could not unblock.", true);
+      }
+    }
+
     document.addEventListener("DOMContentLoaded", async function () {
       await checkAuth();
       await loadProfile();
       await loadInsights();
 
-      document.getElementById("profile-edit-btn").addEventListener("click", function () {
-        var form = document.getElementById("profile-edit-form");
-        form.classList.toggle("open");
+      var params = new URLSearchParams(window.location.search);
+      var tabParam = params.get("tab");
+      if (tabParam) switchTab(tabParam);
+
+      document.querySelectorAll(".profile-tab").forEach(function (tab) {
+        tab.addEventListener("click", function () {
+          switchTab(tab.dataset.tab);
+        });
       });
 
-      document.getElementById("btn-cancel-edit").addEventListener("click", function () {
-        document.getElementById("profile-edit-form").classList.remove("open");
-        if (currentProfile) {
-          document.getElementById("edit-name").value = currentProfile.displayName || "";
-          document.getElementById("edit-bio").value = currentProfile.bio || "";
-          document.getElementById("edit-avatar").value = currentProfile.profilePictureUrl || "";
-          document.getElementById("edit-cover").value = currentProfile.coverPhotoUrl || "";
-          document.getElementById("edit-social").value = currentProfile.socialLinks || "";
-        }
+      document.getElementById("btn-save-profile").addEventListener("click", saveProfile);
+
+      document.getElementById("btn-cancel-profile").addEventListener("click", function () {
+        if (currentProfile) renderProfile(currentProfile);
       });
 
-      document.getElementById("btn-save-profile").addEventListener("click", async function () {
-        var body = {
-          displayName: document.getElementById("edit-name").value.trim() || null,
-          bio: document.getElementById("edit-bio").value.trim() || null,
-          profilePictureUrl: document.getElementById("edit-avatar").value.trim() || null,
-          coverPhotoUrl: document.getElementById("edit-cover").value.trim() || null,
-          socialLinks: document.getElementById("edit-social").value.trim() || null
-        };
-        if (body.socialLinks) {
-          try { JSON.parse(body.socialLinks); } catch (e) {
-            showToast("Social Links must be valid JSON.", true);
-            return;
-          }
-        }
-        try {
-          var res = await apiFetch("/api/settings", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body)
-          });
-          currentProfile = await res.json();
-          renderProfile(currentProfile);
-          document.getElementById("profile-edit-form").classList.remove("open");
-          showToast("Profile saved.", false);
-        } catch (e) {
-          showToast(e.message || "Could not save profile.", true);
-        }
+      document.getElementById("btn-save-prefs").addEventListener("click", savePreferences);
+
+      document.getElementById("blocked-list").addEventListener("click", function (e) {
+        var ub = e.target.closest(".blocked-user-unblock");
+        if (!ub) return;
+        unblockUser(ub.dataset.unblock);
       });
     });
   </script>
