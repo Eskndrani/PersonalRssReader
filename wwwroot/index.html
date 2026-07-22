@@ -14,25 +14,18 @@
   <div class="layout" id="app-layout" style="display: none;">
 
     <aside class="sidebar" id="app-sidebar">
-      <div class="sidebar-user">
-        <span id="user-email" class="user-email"></span>
-        <div id="ai-quota-counter" class="ai-quota-counter" style="display:none;">
-          <div class="quota-header">
-            <span class="quota-label">AI Quota</span>
-            <span class="quota-numbers"></span>
-          </div>
-          <div class="quota-bar-track">
-            <div class="quota-bar-fill"></div>
-          </div>
-          <div class="quota-reset-timer"></div>
+      <div class="sidebar-profile" id="sidebar-profile">
+        <div class="profile-avatar" id="profile-avatar">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+            <circle cx="12" cy="7" r="4"/>
+          </svg>
         </div>
-      </div>
-      <div class="sidebar-header">
-        <h2 data-i18n="subscriptions">
-          <img src="/logo.svg" alt="" class="sidebar-logo" width="20" height="20">
-          Subscriptions
-        </h2>
-        <div class="header-actions">
+        <div class="profile-details">
+          <span class="profile-name" id="profile-name">Guest Account</span>
+          <button id="profile-auth-btn" class="profile-auth-btn sign-in-btn">Sign In / Register</button>
+        </div>
+        <div class="profile-toggles">
           <button id="lang-toggle" class="lang-toggle" title="Switch language" aria-label="Switch language">العربية</button>
           <button id="theme-toggle" class="theme-toggle" title="Toggle dark mode" aria-label="Toggle dark mode">
             <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -50,9 +43,23 @@
               <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
             </svg>
           </button>
-          <button id="btn-logout" class="header-logout" style="display: none;" data-i18n="logout">Logout</button>
-          <button id="btn-signin" class="header-logout" style="display: none;">Sign In</button>
         </div>
+      </div>
+      <div id="ai-quota-counter" class="ai-quota-counter" style="display:none;">
+        <div class="quota-header">
+          <span class="quota-label">AI Quota</span>
+          <span class="quota-numbers"></span>
+        </div>
+        <div class="quota-bar-track">
+          <div class="quota-bar-fill"></div>
+        </div>
+        <div class="quota-reset-timer"></div>
+      </div>
+      <div class="sidebar-header">
+        <h2 data-i18n="subscriptions">
+          <img src="/logo.svg" alt="" class="sidebar-logo" width="20" height="20">
+          Subscriptions
+        </h2>
       </div>
 
       <div class="sidebar-settings">

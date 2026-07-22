@@ -156,6 +156,8 @@ const translations = {
     haveAccount: "Already have an account?",
     logInHere: "Log in here",
     logout: "Logout",
+    guestAccount: "Guest Account",
+    signInRegister: "Sign In / Register",
     dailyBriefing: "Daily Briefing",
     dismiss: "Dismiss",
     chatTitle: "Chat with your feeds",
@@ -228,6 +230,8 @@ const translations = {
     haveAccount: "لديك حساب بالفعل؟",
     logInHere: "سجل الدخول هنا",
     logout: "تسجيل الخروج",
+    guestAccount: "حساب ضيف",
+    signInRegister: "تسجيل الدخول / إنشاء حساب",
     dailyBriefing: "الموجز اليومي",
     dismiss: "إغلاق",
     chatTitle: "تحدث مع مصادر الأخبار",
@@ -292,6 +296,14 @@ function applyLocale() {
   var toggle = document.getElementById("lang-toggle");
   if (toggle) {
     toggle.textContent = currentLocale === "ar" ? "English" : "العربية";
+  }
+  var profileName = document.getElementById("profile-name");
+  var profileBtn = document.getElementById("profile-auth-btn");
+  if (profileName && isGuest) {
+    profileName.textContent = t("guestAccount");
+  }
+  if (profileBtn) {
+    profileBtn.textContent = isGuest ? t("signInRegister") : t("logout");
   }
 }
 
@@ -975,15 +987,7 @@ async function checkAuth() {
     if (res.ok) {
       var data = await res.json();
       isGuest = data.isGuest === true;
-      if (!isGuest) {
-        document.getElementById("user-email").textContent = data.email || "";
-        document.getElementById("btn-logout").style.display = "";
-        document.getElementById("btn-signin").style.display = "none";
-      } else {
-        document.getElementById("user-email").textContent = "Guest";
-        document.getElementById("btn-logout").style.display = "none";
-        document.getElementById("btn-signin").style.display = "";
-      }
+      buildProfileHeader(data);
       setupAuthorized();
       updateQuotaUI();
       return;
@@ -992,11 +996,37 @@ async function checkAuth() {
     console.error("Auth check failed:", e);
   }
   isGuest = true;
-  document.getElementById("user-email").textContent = "Guest";
-  document.getElementById("btn-logout").style.display = "none";
-  document.getElementById("btn-signin").style.display = "";
+  buildProfileHeader({ email: "", isGuest: true });
   setupAuthorized();
   updateQuotaUI();
+}
+
+function buildProfileHeader(data) {
+  var avatar = document.getElementById("profile-avatar");
+  var name = document.getElementById("profile-name");
+  var authBtn = document.getElementById("profile-auth-btn");
+
+  if (!data.isGuest) {
+    var firstLetter = (data.email || "U")[0].toUpperCase();
+    avatar.style.backgroundColor = getColorForFeed(data.email);
+    avatar.innerHTML = '<a href="/profile" style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;border-radius:50%;text-decoration:none">' +
+      '<span class="avatar-letter">' + firstLetter + '</span></a>';
+    name.textContent = data.email || "";
+    authBtn.textContent = t("logout");
+    authBtn.className = "profile-auth-btn sign-out-btn";
+    authBtn.onclick = async function () {
+      await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+      window.location.href = "/welcome.html";
+    };
+  } else {
+    avatar.style.backgroundColor = "";
+    avatar.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+      '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
+    name.textContent = t("guestAccount");
+    authBtn.textContent = t("signInRegister");
+    authBtn.className = "profile-auth-btn sign-in-btn";
+    authBtn.onclick = function () { window.location.href = "/welcome.html"; };
+  }
 }
 
 function setupAuthorized() {
@@ -1233,14 +1263,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
   document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
   document.getElementById("lang-toggle").addEventListener("click", toggleLocale);
-
-  document.getElementById("btn-logout").addEventListener("click", async function () {
-    await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
-    window.location.href = "/welcome.html";
-  });
-
-  var signInBtn = document.getElementById("btn-signin");
-  if (signInBtn) signInBtn.addEventListener("click", function () { window.location.href = "/welcome.html"; });
 
   var gateModal = document.getElementById("feature-gate-modal");
   if (gateModal) {
