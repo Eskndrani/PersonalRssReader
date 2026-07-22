@@ -299,9 +299,6 @@ function applyTranslations() {
     var key = el.getAttribute("data-i18n-title");
     if (key) el.title = t(key);
   });
-  document.getElementById("feed-url").placeholder = t("placeholderUrl");
-  document.getElementById("feed-username").placeholder = t("placeholderUsername");
-  document.getElementById("feed-password").placeholder = t("placeholderPassword");
   document.getElementById("feed-search-sidebar").placeholder = t("placeholderSearch");
 }
 
@@ -630,7 +627,6 @@ function renderFeedList(feeds) {
   }
 
   var list = document.getElementById("feed-list");
-  populatePlaylistDropdown();
 
   if (feedsToRender.length === 0) {
     list.innerHTML =
@@ -1045,7 +1041,7 @@ function renderPage(page) {
   indicator.textContent = t("pageOf", { current: currentPage, total: totalPages });
   prevBtn.disabled = currentPage <= 1;
   nextBtn.disabled = currentPage >= totalPages;
-  pagination.style.display = "flex";
+  if (currentArticleTab !== "community") pagination.style.display = "flex";
 
   document.getElementById("articles-container").scrollIntoView({ behavior: "smooth", block: "start" });
 }
@@ -1055,71 +1051,64 @@ function showFeatureGate() {
 }
 
 function setupAddFeedForm() {
-  const form = document.getElementById("add-feed-form");
-  const textarea = document.getElementById("feed-url");
-  const usernameInput = document.getElementById("feed-username");
-  const passwordInput = document.getElementById("feed-password");
-  const playlistSelect = document.getElementById("feed-playlist-select");
-
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-
-    const raw = textarea.value.trim();
-    if (!raw) return;
-
-    const urls = raw.split(/\r?\n/)
-      .map(function (line) { return line.trim(); })
-      .filter(function (line) { return line.length > 0; });
-
-    if (urls.length === 0) return;
-
-    const username = usernameInput.value.trim() || null;
-    const password = passwordInput.value.trim() || null;
-    const playlistId = playlistSelect ? (playlistSelect.value || null) : null;
-
-    const btn = form.querySelector("button[type='submit']");
-    btn.disabled = true;
-    btn.textContent = t("processingBatch");
-
-    try {
-      const res = await apiFetch("/api/feeds/batch", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ urls: urls, username: username, password: password, playlistId: playlistId }),
+  document.getElementById("btn-add-feed").addEventListener("click", function () {
+    populatePlaylistDropdownForModal();
+    document.getElementById("add-feed-modal").style.display = "flex";
+  });
+  document.getElementById("btn-close-add-feed").addEventListener("click", function () {
+    document.getElementById("add-feed-modal").style.display = "none";
+  });
+  document.getElementById("add-feed-modal").querySelector(".modal-backdrop").addEventListener("click", function () {
+    document.getElementById("add-feed-modal").style.display = "none";
+  });
+  document.getElementById("add-feed-modal").querySelector(".modal-close").addEventListener("click", function () {
+    document.getElementById("add-feed-modal").style.display = "none";
   });
 
-  if (!res.ok) {
-        var errMsg = "Batch import failed";
-        try {
-          var errData = await res.json();
-          errMsg = errData.message || errData.errors || errMsg;
-        } catch (e) {}
-        throw new Error(errMsg);
-      }
-
-      const result = await res.json();
-
-      textarea.value = "";
-      usernameInput.value = "";
-      passwordInput.value = "";
+  document.getElementById("btn-submit-feed").addEventListener("click", async function () {
+    var raw = document.getElementById("modal-feed-url").value.trim();
+    if (!raw) return;
+    var urls = raw.split(/\r?\n/).map(function (l) { return l.trim(); }).filter(function (l) { return l.length > 0; });
+    if (urls.length === 0) return;
+    var username = document.getElementById("modal-feed-username").value.trim() || null;
+    var password = document.getElementById("modal-feed-password").value.trim() || null;
+    var playlistId = document.getElementById("modal-feed-playlist").value || null;
+    var btn = document.getElementById("btn-submit-feed");
+    btn.disabled = true; btn.textContent = t("processingBatch");
+    try {
+      var res = await apiFetch("/api/feeds/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ urls: urls, username: username, password: password, playlistId: playlistId })
+      });
+      if (!res.ok) { var ed = await res.json().catch(function(){}); throw new Error((ed && ed.message) || "Batch import failed"); }
+      var result = await res.json();
+      document.getElementById("modal-feed-url").value = "";
+      document.getElementById("modal-feed-username").value = "";
+      document.getElementById("modal-feed-password").value = "";
+      document.getElementById("add-feed-modal").style.display = "none";
       await loadFeeds();
+      if (result.added > 0 && result.failed === 0) showToast(t("feedsAdded", { added: result.added }), false);
+      else if (result.failed > 0) showToast(t("batchAdded", { added: result.added, failed: result.failed }), true);
+    } catch (err) { showToast(err.message, true); }
+    finally { btn.disabled = false; btn.textContent = t("add"); }
+  });
+}
 
-      if (result.added > 0 && result.failed === 0) {
-        showToast(t("feedsAdded", { added: result.added }), false);
-      } else if (result.failed > 0) {
-        showToast(t("batchAdded", { added: result.added, failed: result.failed }), true);
-      }
-    } catch (err) {
-      showToast(err.message, true);
-    } finally {
-      btn.disabled = false;
-      btn.textContent = t("add");
-    }
+function populatePlaylistDropdownForModal() {
+  var select = document.getElementById("modal-feed-playlist");
+  select.innerHTML = '<option value="">No Playlist</option>';
+  allPlaylists.forEach(function (p) {
+    var opt = document.createElement("option");
+    opt.value = p.id;
+    opt.textContent = p.name;
+    select.appendChild(opt);
   });
 }
 
 var isGuest = false;
 var guestSessionId = "";
+var currentUserEmail = "";
 
 function getSessionId() {
   if (!guestSessionId) {
@@ -1217,12 +1206,20 @@ async function checkAuth() {
   updateQuotaUI();
 }
 
+function hideSpinner() {
+  var spinner = document.getElementById("auth-loading");
+  if (spinner) spinner.style.display = "none";
+  var layout = document.getElementById("app-layout");
+  if (layout) layout.style.display = "";
+}
+
 function buildProfileHeader(data) {
   var avatar = document.getElementById("profile-avatar");
   var name = document.getElementById("profile-name");
   var authBtn = document.getElementById("profile-auth-btn");
 
   if (!data.isGuest) {
+    currentUserEmail = data.email || "";
     var firstLetter = (data.email || "U")[0].toUpperCase();
     avatar.style.backgroundColor = getColorForFeed(data.email);
     avatar.innerHTML = '<a href="/profile.html" style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;border-radius:50%;text-decoration:none">' +
@@ -1232,7 +1229,7 @@ function buildProfileHeader(data) {
     authBtn.className = "profile-auth-btn sign-out-btn";
     authBtn.onclick = async function () {
       await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
-      window.location.href = "/welcome.html";
+      window.location.href = "/index.html";
     };
   } else {
     avatar.style.backgroundColor = "";
@@ -1248,8 +1245,7 @@ function buildProfileHeader(data) {
 var authorizedSetupDone = false;
 
 function setupAuthorized() {
-  document.getElementById("auth-loading").style.display = "none";
-  document.getElementById("app-layout").style.display = "";
+  hideSpinner();
   updateQuotaUI();
 
   if (authorizedSetupDone) {
@@ -1268,7 +1264,6 @@ function setupAuthorized() {
   });
   loadFeeds();
   setupAddFeedForm();
-  setupRetention();
   setupSearch();
   setupTabs();
   setupButtons();
@@ -1276,6 +1271,8 @@ function setupAuthorized() {
   setupBriefing();
   setupChat();
   setupCommunityListeners();
+  setupSettingsModal();
+  setupSettingsBlockedHandler();
 }
 
 function setupBriefing() {
@@ -1396,15 +1393,93 @@ function setupChat() {
   });
 }
 
-function setupRetention() {
-  var saved = localStorage.getItem("retentionDays");
-  document.getElementById("retention-select").value = saved || "30";
-  if (!saved) localStorage.setItem("retentionDays", "30");
-  document.getElementById("retention-select").addEventListener("change", async function () {
-    localStorage.setItem("retentionDays", this.value);
-    await loadFeeds();
+function setupSettingsModal() {
+  document.getElementById("btn-open-settings").addEventListener("click", function () {
+    openSettingsModal();
+  });
+
+  document.getElementById("btn-close-settings").addEventListener("click", function () {
+    document.getElementById("settings-modal").style.display = "none";
+  });
+  document.getElementById("settings-modal").querySelector(".modal-backdrop").addEventListener("click", function () {
+    document.getElementById("settings-modal").style.display = "none";
+  });
+  document.getElementById("settings-modal").querySelector(".modal-close").addEventListener("click", function () {
+    document.getElementById("settings-modal").style.display = "none";
+  });
+
+  document.getElementById("btn-save-settings").addEventListener("click", async function () {
+    var btn = document.getElementById("btn-save-settings");
+    btn.disabled = true; btn.textContent = "Saving...";
+    try {
+      var body = {
+        displayName: document.getElementById("set-name").value.trim() || null,
+        bio: document.getElementById("set-bio").value.trim() || null,
+        profilePictureUrl: document.getElementById("set-avatar").value.trim() || null,
+        coverPhotoUrl: document.getElementById("set-cover").value.trim() || null,
+        socialLinks: document.getElementById("set-social").value.trim() || null,
+        keepArticlesForDays: parseInt(document.getElementById("set-retention").value) || 30,
+        refreshIntervalMinutes: parseInt(document.getElementById("set-refresh").value) || 30,
+        emailFavoriteFeeds: document.getElementById("set-email-fav").checked
+      };
+      if (body.socialLinks) { try { JSON.parse(body.socialLinks); } catch (e) { showToast("Social Links must be valid JSON.", true); btn.disabled = false; btn.textContent = "Save"; return; } }
+      var res = await apiFetch("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      var data = await res.json();
+      localStorage.setItem("retentionDays", String(data.keepArticlesForDays || 30));
+      document.getElementById("profile-name").textContent = data.displayName || currentUserEmail || "Guest";
+      showToast("Settings saved.", false);
+      document.getElementById("settings-modal").style.display = "none";
+    } catch (e) { showToast(e.message || "Could not save.", true); }
+    finally { btn.disabled = false; btn.textContent = "Save"; }
   });
 }
+
+async function openSettingsModal() {
+  document.getElementById("settings-modal").style.display = "flex";
+  try {
+    var res = await apiFetch("/api/settings");
+    var data = await res.json();
+    document.getElementById("set-name").value = data.displayName || "";
+    document.getElementById("set-bio").value = data.bio || "";
+    document.getElementById("set-avatar").value = data.profilePictureUrl || "";
+    document.getElementById("set-cover").value = data.coverPhotoUrl || "";
+    document.getElementById("set-social").value = data.socialLinks || "";
+    document.getElementById("set-retention").value = String(data.keepArticlesForDays || 30);
+    document.getElementById("set-refresh").value = String(data.refreshIntervalMinutes || 30);
+    document.getElementById("set-email-fav").checked = data.emailFavoriteFeeds || false;
+
+    var blockedSection = document.getElementById("settings-blocked-section");
+    var blockedList = document.getElementById("settings-blocked-list");
+    if (data.blockedUsers && data.blockedUsers.length > 0) {
+      blockedSection.style.display = "";
+      blockedList.innerHTML = data.blockedUsers.map(function (b) {
+        return '<div class="blocked-user-tag"><span>' + escapeHtml(b.blockedId) + '</span><button class="blocked-user-unblock" data-unblock="' + escapeAttr(b.blockedId) + '">&times;</button></div>';
+      }).join("");
+    } else {
+      blockedSection.style.display = "none";
+    }
+  } catch (e) { showToast("Could not load settings.", true); }
+}
+
+function setupSettingsBlockedHandler() {
+  document.getElementById("settings-blocked-list").addEventListener("click", function (e) {
+    var ub = e.target.closest(".blocked-user-unblock");
+    if (!ub) return;
+    var blockedId = ub.dataset.unblock;
+    apiFetch("/api/users/" + blockedId + "/block", { method: "DELETE" })
+      .then(function () {
+        var tag = ub.closest(".blocked-user-tag");
+        if (tag) tag.remove();
+        var itemCount = document.querySelectorAll("#settings-blocked-list .blocked-user-tag").length;
+        if (itemCount === 0) document.getElementById("settings-blocked-section").style.display = "none";
+      }).catch(function (err) { showToast(err.message || "Could not unblock.", true); });
+  });
+}
+  apiFetch("/api/settings").then(function (res) { return res.json(); }).then(function (data) {
+    localStorage.setItem("retentionDays", String(data.keepArticlesForDays || 30));
+  }).catch(function () {
+    if (!localStorage.getItem("retentionDays")) localStorage.setItem("retentionDays", "30");
+  });
 
 function setupSearch() {
   document.getElementById("feed-search-sidebar").addEventListener("input", filterSidebarFeeds);
@@ -1471,8 +1546,28 @@ async function loadCommunityPosts() {
     var res = await apiFetch("/api/community/posts");
     var posts = await res.json();
     renderCommunityPosts(posts);
+    loadBlockedUsers();
   } catch (e) {
     feed.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:2rem">Could not load community posts.</p>';
+  }
+}
+
+async function loadBlockedUsers() {
+  try {
+    var res = await apiFetch("/api/users/blocked");
+    var blocked = await res.json();
+    var section = document.getElementById("blocked-users-section");
+    var list = document.getElementById("blocked-users-list");
+    if (blocked.length === 0) {
+      section.style.display = "none";
+      return;
+    }
+    section.style.display = "";
+    list.innerHTML = blocked.map(function (b) {
+      return '<div class="blocked-user-tag"><span>' + escapeHtml(b.blockedId) + '</span><button class="blocked-user-unblock" data-unblock="' + escapeAttr(b.blockedId) + '">&times;</button></div>';
+    }).join("");
+  } catch (e) {
+    document.getElementById("blocked-users-section").style.display = "none";
   }
 }
 
@@ -1486,14 +1581,18 @@ function renderCommunityPosts(posts) {
     var time = timeSince(p.createdAt);
     var media = p.mediaUrl ? '<img src="' + escapeAttr(p.mediaUrl) + '" class="community-post-media" onerror="this.style.display=\'none\'" alt="">' : '';
 
-    var likeCount = 0, loveCount = 0, insightCount = 0;
+    var reactionHtml = '';
     (p.reactionCounts || []).forEach(function (rc) {
-      if (rc.type === "Like") likeCount = rc.count;
-      if (rc.type === "Love") loveCount = rc.count;
-      if (rc.type === "Insightful") insightCount = rc.count;
+      reactionHtml += '<button class="community-react-btn" data-react="' + escapeAttr(rc.type) + '" data-post-id="' + escapeAttr(p.id) + '">' + escapeHtml(rc.type) + ' ' + rc.count + '</button>';
     });
+    reactionHtml += '<button class="community-react-btn community-add-emoji" data-post-id="' + escapeAttr(p.id) + '" title="Add reaction">+</button>';
 
-    var userReact = p.currentUserReaction || "";
+    var commentsHtml = '';
+    if (p.comments && p.comments.length > 0) {
+      commentsHtml = '<div class="community-comments">' + p.comments.map(function (c) {
+        return '<div class="community-comment"><span class="community-comment-author">' + escapeHtml(c.authorName || "User") + '</span><span class="community-comment-text">' + escapeHtml(c.content) + '</span></div>';
+      }).join("") + '</div>';
+    }
 
     return '<div class="community-post">' +
       '<div class="community-post-header">' +
@@ -1505,15 +1604,19 @@ function renderCommunityPosts(posts) {
       media +
       '<div class="community-post-content">' + escapeHtml(p.content) + '</div>' +
       '<div class="community-post-actions">' +
-      '<div class="community-reactions">' +
-      '<button class="community-react-btn' + (userReact === "Like" ? " active" : "") + '" data-react="Like" data-post-id="' + escapeAttr(p.id) + '">&#x1F44D; ' + likeCount + '</button>' +
-      '<button class="community-react-btn' + (userReact === "Love" ? " active" : "") + '" data-react="Love" data-post-id="' + escapeAttr(p.id) + '">&#x2764;&#xFE0F; ' + loveCount + '</button>' +
-      '<button class="community-react-btn' + (userReact === "Insightful" ? " active" : "") + '" data-react="Insightful" data-post-id="' + escapeAttr(p.id) + '">&#x1F4A1; ' + insightCount + '</button>' +
-      '</div></div></div>';
+      '<div class="community-reactions">' + reactionHtml + '</div>' +
+      '<button class="community-comment-toggle" data-post-id="' + escapeAttr(p.id) + '">&#x1F4AC; Comment</button>' +
+      '</div>' +
+      '<div class="community-comment-box" data-post-id="' + escapeAttr(p.id) + '" style="display:none;">' +
+      commentsHtml +
+      '<div class="community-comment-input-row"><input type="text" class="community-comment-input" data-post-id="' + escapeAttr(p.id) + '" placeholder="Write a comment..." maxlength="300"><button class="btn btn-primary btn-comment-submit" data-post-id="' + escapeAttr(p.id) + '" style="font-size:0.65rem;padding:0.3rem 0.6rem;">Send</button></div>' +
+      '</div></div>';
   }).join("");
 }
 
 function setupCommunityListeners() {
+  var emojiList = ["\uD83D\uDC4D", "\u2764\uFE0F", "\uD83D\uDE02", "\uD83D\uDE2E", "\uD83D\uDE22", "\uD83D\uDE21", "\uD83E\uDD14", "\uD83D\uDC4F", "\uD83C\uDF89", "\uD83D\uDCAF", "\uD83D\uDD25", "\uD83D\uDCA1", "\uD83D\uDC40", "\uD83D\uDE4C", "\uD83D\uDE80"];
+
   document.getElementById("btn-community-post").addEventListener("click", async function () {
     var input = document.getElementById("community-post-input");
     var mediaInput = document.getElementById("community-media-url");
@@ -1546,6 +1649,10 @@ function setupCommunityListeners() {
   document.getElementById("community-feed").addEventListener("click", function (e) {
     var reactBtn = e.target.closest(".community-react-btn");
     if (reactBtn) {
+      if (reactBtn.classList.contains("community-add-emoji")) {
+        showEmojiPicker(reactBtn);
+        return;
+      }
       reactBtn.disabled = true;
       var postId = reactBtn.dataset.postId;
       var reactionType = reactBtn.dataset.react;
@@ -1562,6 +1669,16 @@ function setupCommunityListeners() {
       return;
     }
 
+    var commentToggle = e.target.closest(".community-comment-toggle");
+    if (commentToggle) {
+      var box = commentToggle.parentElement.parentElement.querySelector(".community-comment-box");
+      box.style.display = box.style.display === "none" ? "" : "none";
+      if (box.style.display !== "none") {
+        box.querySelector(".community-comment-input").focus();
+      }
+      return;
+    }
+
     var blockBtn = e.target.closest(".community-block-btn");
     if (blockBtn) {
       var blockedId = blockBtn.dataset.blockUser;
@@ -1575,6 +1692,93 @@ function setupCommunityListeners() {
         });
     }
   });
+
+  document.getElementById("community-feed").addEventListener("click", function (e) {
+    var submitBtn = e.target.closest(".btn-comment-submit");
+    if (!submitBtn) return;
+    var postId = submitBtn.dataset.postId;
+    var box = submitBtn.closest(".community-comment-box");
+    var input = box.querySelector(".community-comment-input");
+    var content = input.value.trim();
+    if (!content) return;
+    submitBtn.disabled = true;
+    apiFetch("/api/community/posts/" + postId + "/comments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: content })
+    }).then(function () {
+      input.value = "";
+      loadCommunityPosts();
+    }).catch(function (err) {
+      showToast(err.message || "Could not post comment.", true);
+      submitBtn.disabled = false;
+    });
+  });
+
+  document.getElementById("community-feed").addEventListener("keydown", function (e) {
+    if (e.key !== "Enter") return;
+    var input = e.target.closest(".community-comment-input");
+    if (!input) return;
+    e.preventDefault();
+    var box = input.closest(".community-comment-box");
+    var submitBtn = box.querySelector(".btn-comment-submit");
+    submitBtn.click();
+  });
+
+  document.getElementById("blocked-users-list").addEventListener("click", function (e) {
+    var unblockBtn = e.target.closest(".blocked-user-unblock");
+    if (!unblockBtn) return;
+    var blockedId = unblockBtn.dataset.unblock;
+    apiFetch("/api/users/" + blockedId + "/block", { method: "DELETE" })
+      .then(function () {
+        loadBlockedUsers();
+        loadCommunityPosts();
+      }).catch(function (err) {
+        showToast(err.message || "Could not unblock user.", true);
+      });
+  });
+}
+
+function showEmojiPicker(btn) {
+  var existing = document.querySelector(".emoji-picker-popup");
+  if (existing) { existing.remove(); return; }
+
+  var emojiList = ["\uD83D\uDC4D", "\u2764\uFE0F", "\uD83D\uDE02", "\uD83D\uDE2E", "\uD83D\uDE22", "\uD83D\uDE21", "\uD83E\uDD14", "\uD83D\uDC4F", "\uD83C\uDF89", "\uD83D\uDCAF", "\uD83D\uDD25", "\uD83D\uDCA1", "\uD83D\uDC40", "\uD83D\uDE4C", "\uD83D\uDE80"];
+
+  var picker = document.createElement("div");
+  picker.className = "emoji-picker-popup";
+  emojiList.forEach(function (em) {
+    var span = document.createElement("span");
+    span.className = "emoji-picker-item";
+    span.textContent = em;
+    span.addEventListener("click", function () {
+      var postId = btn.dataset.postId;
+      apiFetch("/api/community/posts/" + postId + "/react", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reactionType: em })
+      }).then(function () {
+        picker.remove();
+        loadCommunityPosts();
+      }).catch(function (err) {
+        showToast(err.message || "Reaction failed.", true);
+        picker.remove();
+      });
+    });
+    picker.appendChild(span);
+  });
+
+  btn.parentElement.appendChild(picker);
+
+  setTimeout(function () {
+    var closeHandler = function (ev) {
+      if (!picker.contains(ev.target) && ev.target !== btn) {
+        picker.remove();
+        document.removeEventListener("click", closeHandler);
+      }
+    };
+    document.addEventListener("click", closeHandler);
+  }, 0);
 }
 
 function setupListeners() {
@@ -1708,44 +1912,53 @@ function setupListeners() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-  initTheme();
-  initLocale();
+  try {
+    initTheme();
+    initLocale();
 
-  checkAuth();
+    checkAuth();
 
-  document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
-  document.getElementById("lang-toggle").addEventListener("click", toggleLocale);
+    setTimeout(function () {
+      hideSpinner();
+    }, 8000);
 
-  var gateModal = document.getElementById("feature-gate-modal");
-  if (gateModal) {
-    gateModal.querySelector(".modal-close").addEventListener("click", function () { gateModal.style.display = "none"; });
-    gateModal.querySelector(".modal-backdrop").addEventListener("click", function () { gateModal.style.display = "none"; });
-  }
+    document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
+    document.getElementById("lang-toggle").addEventListener("click", toggleLocale);
 
-  document.getElementById("read-modal").querySelector(".modal-close").addEventListener("click", closeModal);
-  document.getElementById("read-modal").querySelector(".modal-backdrop").addEventListener("click", closeModal);
+    var gateModal = document.getElementById("feature-gate-modal");
+    if (gateModal) {
+      gateModal.querySelector(".modal-close").addEventListener("click", function () { gateModal.style.display = "none"; });
+      gateModal.querySelector(".modal-backdrop").addEventListener("click", function () { gateModal.style.display = "none"; });
+    }
 
-  document.getElementById("btn-new-playlist").addEventListener("click", function () {
-    showInlinePlaylistCreator();
-  });
+    document.getElementById("read-modal").querySelector(".modal-close").addEventListener("click", closeModal);
+    document.getElementById("read-modal").querySelector(".modal-backdrop").addEventListener("click", closeModal);
 
-  document.getElementById("btn-delete-cancel").addEventListener("click", function () {
-    hidePlaylistDeleteModal();
-  });
-  document.getElementById("btn-delete-keep-feeds").addEventListener("click", function () {
-    var id = pendingDeletePlaylistId;
-    hidePlaylistDeleteModal();
-    if (id) deletePlaylist(id, false);
-  });
-  document.getElementById("btn-delete-all").addEventListener("click", function () {
-    var id = pendingDeletePlaylistId;
-    hidePlaylistDeleteModal();
-    if (id) deletePlaylist(id, true);
-  });
-  var playlistDeleteModal = document.getElementById("playlist-delete-modal");
-  if (playlistDeleteModal) {
-    playlistDeleteModal.querySelector(".modal-close").addEventListener("click", hidePlaylistDeleteModal);
-    playlistDeleteModal.querySelector(".modal-backdrop").addEventListener("click", hidePlaylistDeleteModal);
+    document.getElementById("btn-new-playlist").addEventListener("click", function () {
+      showInlinePlaylistCreator();
+    });
+
+    document.getElementById("btn-delete-cancel").addEventListener("click", function () {
+      hidePlaylistDeleteModal();
+    });
+    document.getElementById("btn-delete-keep-feeds").addEventListener("click", function () {
+      var id = pendingDeletePlaylistId;
+      hidePlaylistDeleteModal();
+      if (id) deletePlaylist(id, false);
+    });
+    document.getElementById("btn-delete-all").addEventListener("click", function () {
+      var id = pendingDeletePlaylistId;
+      hidePlaylistDeleteModal();
+      if (id) deletePlaylist(id, true);
+    });
+    var playlistDeleteModal = document.getElementById("playlist-delete-modal");
+    if (playlistDeleteModal) {
+      playlistDeleteModal.querySelector(".modal-close").addEventListener("click", hidePlaylistDeleteModal);
+      playlistDeleteModal.querySelector(".modal-backdrop").addEventListener("click", hidePlaylistDeleteModal);
+    }
+  } catch (e) {
+    console.error("Init error:", e);
+    hideSpinner();
   }
 });
 

@@ -45,6 +45,10 @@
   </div>
   <div id="toast" class="toast"></div>
   <script>
+    fetch("/api/auth/me", { credentials: "include" }).then(function (r) {
+      if (r.ok) return r.json().then(function (d) { if (!d.isGuest) window.location.href = "/index.html"; });
+    });
+
     document.getElementById("login-form").addEventListener("submit", async function(e) {
       e.preventDefault();
       var btn = document.getElementById("login-btn");

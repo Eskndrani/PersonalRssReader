@@ -205,7 +205,7 @@
 
     async function loadProfile() {
       try {
-        var res = await apiFetch("/api/profile");
+        var res = await apiFetch("/api/settings");
         var data = await res.json();
         currentProfile = data;
         renderProfile(data);
@@ -360,7 +360,7 @@
           }
         }
         try {
-          var res = await apiFetch("/api/profile", {
+          var res = await apiFetch("/api/settings", {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body)

@@ -100,6 +100,7 @@ builder.Services.AddScoped<FeedArticleService>();
 builder.Services.AddScoped<IAiService, AiService>();
 builder.Services.AddHostedService<FeedRefreshWorker>();
 builder.Services.AddHostedService<GuestCleanupService>();
+builder.Services.AddHostedService<DailyDigestService>();
 builder.Services.AddSingleton<IEmailService, SmtpEmailService>();
 
 builder.Services.AddHttpClient("AiClient", client =>
@@ -146,18 +147,51 @@ using (var scope = app.Services.CreateScope())
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.EnsureCreated();
 
-    try
+    db.Database.ExecuteSqlRaw(
+        "CREATE TABLE IF NOT EXISTS UserProfiles (Id TEXT PRIMARY KEY, UserId TEXT, GuestSessionId TEXT, DisplayName TEXT, Bio TEXT, ProfilePictureUrl TEXT, CoverPhotoUrl TEXT, SocialLinks TEXT, KeepArticlesForDays INTEGER NOT NULL DEFAULT 30, RefreshIntervalMinutes INTEGER NOT NULL DEFAULT 30, EmailFavoriteFeeds INTEGER NOT NULL DEFAULT 0)");
+
+    var existingColumns = new HashSet<string>();
+    using (var cmd = db.Database.GetDbConnection().CreateCommand())
     {
-        db.Database.ExecuteSqlRaw(
-            "CREATE TABLE IF NOT EXISTS UserProfiles (Id TEXT PRIMARY KEY, UserId TEXT, GuestSessionId TEXT, DisplayName TEXT, Bio TEXT, ProfilePictureUrl TEXT, CoverPhotoUrl TEXT, SocialLinks TEXT)");
-        db.Database.ExecuteSqlRaw(
-            "CREATE TABLE IF NOT EXISTS CommunityPosts (Id TEXT PRIMARY KEY, Content TEXT NOT NULL, MediaUrl TEXT, AuthorId TEXT NOT NULL, AuthorName TEXT, CreatedAt TEXT NOT NULL)");
-        db.Database.ExecuteSqlRaw(
-            "CREATE TABLE IF NOT EXISTS PostReactions (PostId TEXT NOT NULL, UserId TEXT NOT NULL, ReactionType TEXT NOT NULL, PRIMARY KEY (PostId, UserId), FOREIGN KEY (PostId) REFERENCES CommunityPosts(Id) ON DELETE CASCADE)");
-        db.Database.ExecuteSqlRaw(
-            "CREATE TABLE IF NOT EXISTS UserBlocks (BlockerId TEXT NOT NULL, BlockedId TEXT NOT NULL, PRIMARY KEY (BlockerId, BlockedId))");
+        cmd.CommandText = "PRAGMA table_info(UserProfiles)";
+        db.Database.GetDbConnection().Open();
+        using (var reader = cmd.ExecuteReader())
+        {
+            while (reader.Read()) existingColumns.Add(reader.GetString(1));
+        }
+        db.Database.GetDbConnection().Close();
     }
-    catch { }
+
+    if (!existingColumns.Contains("KeepArticlesForDays"))
+        db.Database.ExecuteSqlRaw("ALTER TABLE UserProfiles ADD COLUMN KeepArticlesForDays INTEGER NOT NULL DEFAULT 30");
+    if (!existingColumns.Contains("RefreshIntervalMinutes"))
+        db.Database.ExecuteSqlRaw("ALTER TABLE UserProfiles ADD COLUMN RefreshIntervalMinutes INTEGER NOT NULL DEFAULT 30");
+    if (!existingColumns.Contains("EmailFavoriteFeeds"))
+        db.Database.ExecuteSqlRaw("ALTER TABLE UserProfiles ADD COLUMN EmailFavoriteFeeds INTEGER NOT NULL DEFAULT 0");
+
+    var feedColumns = new HashSet<string>();
+    using (var feedCmd = db.Database.GetDbConnection().CreateCommand())
+    {
+        feedCmd.CommandText = "PRAGMA table_info(Feeds)";
+        db.Database.GetDbConnection().Open();
+        using (var reader = feedCmd.ExecuteReader())
+        {
+            while (reader.Read()) feedColumns.Add(reader.GetString(1));
+        }
+        db.Database.GetDbConnection().Close();
+    }
+    if (!feedColumns.Contains("LastRefreshedAt"))
+        db.Database.ExecuteSqlRaw("ALTER TABLE Feeds ADD COLUMN LastRefreshedAt TEXT NOT NULL DEFAULT '0001-01-01T00:00:00'");
+
+    db.Database.ExecuteSqlRaw(
+        "CREATE TABLE IF NOT EXISTS CommunityPosts (Id TEXT PRIMARY KEY, Content TEXT NOT NULL, MediaUrl TEXT, AuthorId TEXT NOT NULL, AuthorName TEXT, CreatedAt TEXT NOT NULL)");
+    db.Database.ExecuteSqlRaw("DROP TABLE IF EXISTS PostReactions");
+    db.Database.ExecuteSqlRaw(
+        "CREATE TABLE IF NOT EXISTS PostReactions (Id INTEGER PRIMARY KEY AUTOINCREMENT, PostId TEXT NOT NULL, UserId TEXT NOT NULL, ReactionType TEXT NOT NULL, FOREIGN KEY (PostId) REFERENCES CommunityPosts(Id) ON DELETE CASCADE)");
+    db.Database.ExecuteSqlRaw(
+        "CREATE TABLE IF NOT EXISTS UserBlocks (BlockerId TEXT NOT NULL, BlockedId TEXT NOT NULL, PRIMARY KEY (BlockerId, BlockedId))");
+    db.Database.ExecuteSqlRaw(
+        "CREATE TABLE IF NOT EXISTS PostComments (Id INTEGER PRIMARY KEY AUTOINCREMENT, PostId TEXT NOT NULL, AuthorId TEXT NOT NULL, AuthorName TEXT, Content TEXT NOT NULL, CreatedAt TEXT NOT NULL, FOREIGN KEY (PostId) REFERENCES CommunityPosts(Id) ON DELETE CASCADE)");
 }
 
 app.UseAuthentication();
@@ -195,7 +229,7 @@ app.MapGet("/api/quota", async (AppDbContext db, HttpContext http) =>
     return Results.Ok(new { used = usage?.RequestCount ?? 0, limit, nextReset = nextReset.ToString("o") });
 });
 
-app.MapGet("/api/profile", async (AppDbContext db, HttpContext http) =>
+app.MapGet("/api/settings", async (AppDbContext db, HttpContext http) =>
 {
     try
     {
@@ -218,6 +252,11 @@ app.MapGet("/api/profile", async (AppDbContext db, HttpContext http) =>
             await db.SaveChangesAsync();
         }
 
+        var blocked = await db.UserBlocks
+            .Where(b => b.BlockerId == key)
+            .Select(b => new { b.BlockedId })
+            .ToListAsync();
+
         return Results.Ok(new
         {
             profile.Id,
@@ -225,16 +264,20 @@ app.MapGet("/api/profile", async (AppDbContext db, HttpContext http) =>
             profile.Bio,
             profile.ProfilePictureUrl,
             profile.CoverPhotoUrl,
-            profile.SocialLinks
+            profile.SocialLinks,
+            profile.KeepArticlesForDays,
+            profile.RefreshIntervalMinutes,
+            profile.EmailFavoriteFeeds,
+            BlockedUsers = blocked
         });
     }
     catch (Exception ex)
     {
-        return Results.Json(new { error = "Could not load profile.", detail = ex.Message }, statusCode: 500);
+        return Results.Json(new { error = "Could not load settings.", detail = ex.Message }, statusCode: 500);
     }
 });
 
-app.MapPut("/api/profile", async (UpdateProfileDto dto, AppDbContext db, HttpContext http) =>
+app.MapPut("/api/settings", async (UpdateProfileDto dto, AppDbContext db, HttpContext http) =>
 {
     try
     {
@@ -242,13 +285,16 @@ app.MapPut("/api/profile", async (UpdateProfileDto dto, AppDbContext db, HttpCon
         var profile = await db.UserProfiles
             .FirstOrDefaultAsync(p => p.UserId == key || p.GuestSessionId == key);
 
-        if (profile is null) return Results.Json(new { error = "Profile not found." }, statusCode: 404);
+        if (profile is null) return Results.Json(new { error = "Settings not found." }, statusCode: 404);
 
         if (dto.DisplayName is not null) profile.DisplayName = dto.DisplayName;
         if (dto.Bio is not null) profile.Bio = dto.Bio;
         if (dto.ProfilePictureUrl is not null) profile.ProfilePictureUrl = dto.ProfilePictureUrl;
         if (dto.CoverPhotoUrl is not null) profile.CoverPhotoUrl = dto.CoverPhotoUrl;
         if (dto.SocialLinks is not null) profile.SocialLinks = dto.SocialLinks;
+        if (dto.KeepArticlesForDays.HasValue) profile.KeepArticlesForDays = dto.KeepArticlesForDays.Value;
+        if (dto.RefreshIntervalMinutes.HasValue) profile.RefreshIntervalMinutes = dto.RefreshIntervalMinutes.Value;
+        if (dto.EmailFavoriteFeeds.HasValue) profile.EmailFavoriteFeeds = dto.EmailFavoriteFeeds.Value;
 
         await db.SaveChangesAsync();
 
@@ -259,12 +305,15 @@ app.MapPut("/api/profile", async (UpdateProfileDto dto, AppDbContext db, HttpCon
             profile.Bio,
             profile.ProfilePictureUrl,
             profile.CoverPhotoUrl,
-            profile.SocialLinks
+            profile.SocialLinks,
+            profile.KeepArticlesForDays,
+            profile.RefreshIntervalMinutes,
+            profile.EmailFavoriteFeeds
         });
     }
     catch (Exception ex)
     {
-        return Results.Json(new { error = "Could not save profile.", detail = ex.Message }, statusCode: 500);
+        return Results.Json(new { error = "Could not save settings.", detail = ex.Message }, statusCode: 500);
     }
 });
 
@@ -304,24 +353,34 @@ app.MapGet("/api/community/posts", async (AppDbContext db, HttpContext http) =>
         .ToListAsync();
 
     var posts = await db.CommunityPosts
+        .Include(p => p.Reactions)
+        .Include(p => p.Comments)
         .Where(p => !blockedIds.Contains(p.AuthorId))
         .OrderByDescending(p => p.CreatedAt)
         .Take(50)
-        .Select(p => new
-        {
-            p.Id,
-            p.Content,
-            p.MediaUrl,
-            p.AuthorId,
-            p.AuthorName,
-            p.CreatedAt,
-            ReactionCounts = p.Reactions.GroupBy(r => r.ReactionType)
-                .Select(g => new { Type = g.Key, Count = g.Count() }).ToList(),
-            CurrentUserReaction = p.Reactions.Where(r => r.UserId == key).Select(r => r.ReactionType).FirstOrDefault()
-        })
         .ToListAsync();
 
-    return Results.Ok(posts);
+    var result = posts.Select(p => new
+    {
+        p.Id,
+        p.Content,
+        p.MediaUrl,
+        p.AuthorId,
+        p.AuthorName,
+        p.CreatedAt,
+        ReactionCounts = p.Reactions.GroupBy(r => r.ReactionType)
+            .Select(g => new { Type = g.Key, Count = g.Count() }).ToList(),
+        Comments = p.Comments.OrderBy(c => c.CreatedAt).Select(c => new
+        {
+            c.Id,
+            c.AuthorId,
+            c.AuthorName,
+            c.Content,
+            c.CreatedAt
+        }).ToList()
+    }).ToList();
+
+    return Results.Ok(result);
 });
 
 app.MapPost("/api/community/posts", async (CreatePostDto dto, AppDbContext db, HttpContext http) =>
@@ -330,9 +389,19 @@ app.MapPost("/api/community/posts", async (CreatePostDto dto, AppDbContext db, H
     if (string.IsNullOrWhiteSpace(dto.Content))
         return Results.BadRequest(new { error = "Content is required." });
 
+    var isGuest = http.User.FindFirstValue(ClaimTypes.NameIdentifier) is null;
+    if (isGuest)
+    {
+        var guestPostCount = await db.CommunityPosts.CountAsync(p => p.AuthorId == key);
+        if (guestPostCount >= 3)
+            return Results.BadRequest(new { error = "Guests are limited to 3 posts. Please create an account to post more." });
+    }
+
     var profile = await db.UserProfiles
         .FirstOrDefaultAsync(p => p.UserId == key || p.GuestSessionId == key);
-    var authorName = profile?.DisplayName ?? (http.User.Identity?.Name ?? "Guest");
+    var authorName = profile?.DisplayName
+        ?? (isGuest ? "Guest-" + (http.Request.Headers["X-Guest-Session"].FirstOrDefault() ?? "anon").Substring(0, Math.Min(6, (http.Request.Headers["X-Guest-Session"].FirstOrDefault() ?? "anon").Length))
+            : http.User.Identity?.Name ?? "User");
 
     var post = new CommunityPost
     {
@@ -375,31 +444,13 @@ app.MapDelete("/api/community/posts/{id}", async (string id, AppDbContext db, Ht
 app.MapPost("/api/community/posts/{id}/react", async (string id, ReactDto dto, AppDbContext db, HttpContext http) =>
 {
     var key = GetUserKey(http);
-    var validTypes = new[] { "Like", "Love", "Insightful" };
-    if (!validTypes.Contains(dto.ReactionType))
-        return Results.BadRequest(new { error = "Invalid reaction type. Use Like, Love, or Insightful." });
+    if (string.IsNullOrWhiteSpace(dto.ReactionType))
+        return Results.BadRequest(new { error = "Reaction type is required." });
 
-    var post = await db.CommunityPosts.Include(p => p.Reactions).FirstOrDefaultAsync(p => p.Id == id);
+    var post = await db.CommunityPosts.FirstOrDefaultAsync(p => p.Id == id);
     if (post is null) return Results.NotFound();
 
-    var existing = post.Reactions.FirstOrDefault(r => r.UserId == key);
-
-    if (existing is not null)
-    {
-        if (existing.ReactionType == dto.ReactionType)
-        {
-            db.PostReactions.Remove(existing);
-        }
-        else
-        {
-            existing.ReactionType = dto.ReactionType;
-        }
-    }
-    else
-    {
-        db.PostReactions.Add(new PostReaction { PostId = id, UserId = key, ReactionType = dto.ReactionType });
-    }
-
+    db.PostReactions.Add(new PostReaction { PostId = id, UserId = key, ReactionType = dto.ReactionType });
     await db.SaveChangesAsync();
 
     var counts = await db.PostReactions
@@ -408,12 +459,7 @@ app.MapPost("/api/community/posts/{id}/react", async (string id, ReactDto dto, A
         .Select(g => new { Type = g.Key, Count = g.Count() })
         .ToListAsync();
 
-    var userReaction = await db.PostReactions
-        .Where(r => r.PostId == id && r.UserId == key)
-        .Select(r => r.ReactionType)
-        .FirstOrDefaultAsync();
-
-    return Results.Ok(new { reactionCounts = counts, currentUserReaction = userReaction });
+    return Results.Ok(new { reactionCounts = counts });
 });
 
 app.MapPost("/api/users/{blockedId}/block", async (string blockedId, AppDbContext db, HttpContext http) =>
@@ -430,6 +476,66 @@ app.MapPost("/api/users/{blockedId}/block", async (string blockedId, AppDbContex
     await db.SaveChangesAsync();
 
     return Results.Ok(new { blocked = true });
+});
+
+app.MapPost("/api/community/posts/{id}/comments", async (string id, CreatePostDto dto, AppDbContext db, HttpContext http) =>
+{
+    var key = GetUserKey(http);
+    if (string.IsNullOrWhiteSpace(dto.Content))
+        return Results.BadRequest(new { error = "Comment content is required." });
+
+    var post = await db.CommunityPosts.FirstOrDefaultAsync(p => p.Id == id);
+    if (post is null) return Results.NotFound();
+
+    var isGuest = http.User.FindFirstValue(ClaimTypes.NameIdentifier) is null;
+    var profile = await db.UserProfiles
+        .FirstOrDefaultAsync(p => p.UserId == key || p.GuestSessionId == key);
+    var authorName = profile?.DisplayName
+        ?? (isGuest ? "Guest-" + (http.Request.Headers["X-Guest-Session"].FirstOrDefault() ?? "anon").Substring(0, Math.Min(6, (http.Request.Headers["X-Guest-Session"].FirstOrDefault() ?? "anon").Length))
+            : http.User.Identity?.Name ?? "User");
+
+    var comment = new PostComment
+    {
+        PostId = id,
+        AuthorId = key,
+        AuthorName = authorName,
+        Content = dto.Content.Trim(),
+        CreatedAt = DateTime.UtcNow
+    };
+
+    db.PostComments.Add(comment);
+    await db.SaveChangesAsync();
+
+    return Results.Created($"/api/community/posts/{id}/comments/{comment.Id}", new
+    {
+        comment.Id,
+        comment.AuthorId,
+        comment.AuthorName,
+        comment.Content,
+        comment.CreatedAt
+    });
+});
+
+app.MapDelete("/api/users/{blockedId}/block", async (string blockedId, AppDbContext db, HttpContext http) =>
+{
+    var key = GetUserKey(http);
+    var block = await db.UserBlocks.FirstOrDefaultAsync(b => b.BlockerId == key && b.BlockedId == blockedId);
+    if (block is null) return Results.NotFound();
+
+    db.UserBlocks.Remove(block);
+    await db.SaveChangesAsync();
+
+    return Results.NoContent();
+});
+
+app.MapGet("/api/users/blocked", async (AppDbContext db, HttpContext http) =>
+{
+    var key = GetUserKey(http);
+    var blocked = await db.UserBlocks
+        .Where(b => b.BlockerId == key)
+        .Select(b => new { b.BlockedId })
+        .ToListAsync();
+    return Results.Ok(blocked);
 });
 
 app.MapPost("/api/auth/logout", async (SignInManager<IdentityUser> signInManager) =>
@@ -538,6 +644,12 @@ app.MapPost("/api/auth/resend-verification", async (
     return Results.Ok(new { message = "A new verification link has been sent to your email." });
 });
 
+(string Title, string Url)[] GuestDefaultFeeds = {
+    ("Hacker News", "https://news.ycombinator.com/rss"),
+    ("Herb Sutter on Software", "https://herbsutter.com/feed/"),
+    ("Hackaday", "https://hackaday.com/blog/feed/")
+};
+
 (string Url, string Playlist)[] GuestFeedMappings = {
     ("https://hackaday.com/feed/", "Tech & Maker"),
     ("https://blog.arduino.cc/feed/", "Tech & Maker"),
@@ -556,32 +668,14 @@ app.MapGet("/api/feeds", async (AppDbContext db, HttpContext http, FeedArticleSe
     var feedCount = await db.Feeds.CountAsync(f => f.UserId == key || f.GuestSessionId == key);
     if (isGuest && feedCount == 0)
     {
-        var playlistNames = GuestFeedMappings.Select(m => m.Playlist).Distinct();
-        var playlistMap = new Dictionary<string, string>();
-        foreach (var name in playlistNames)
+        foreach (var (title, url) in GuestDefaultFeeds)
         {
-            var playlist = new Playlist
-            {
-                Id = Guid.NewGuid().ToString(),
-                Name = name,
-                GuestSessionId = key
-            };
-            db.Playlists.Add(playlist);
-            playlistMap[name] = playlist.Id;
-        }
-
-        foreach (var (url, playlistName) in GuestFeedMappings)
-        {
-            string title;
-            try { title = await articleService.FetchFeedTitleAsync(url, null, null, CancellationToken.None); }
-            catch { title = url; }
             db.Feeds.Add(new FeedSubscription
             {
                 Id = Guid.NewGuid().ToString(),
                 Url = url,
                 Title = title,
                 GuestSessionId = key,
-                PlaylistId = playlistMap[playlistName],
                 FaviconUrl = GetFaviconUrl(url)
             });
         }
@@ -1175,6 +1269,7 @@ public class FeedSubscription
     public string? FaviconUrl { get; set; }
     public string? PlaylistId { get; set; }
     public Playlist? Playlist { get; set; }
+    public DateTime LastRefreshedAt { get; set; } = DateTime.MinValue;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
@@ -1198,6 +1293,9 @@ public class UserProfile
     public string? ProfilePictureUrl { get; set; }
     public string? CoverPhotoUrl { get; set; }
     public string? SocialLinks { get; set; }
+    public int KeepArticlesForDays { get; set; } = 30;
+    public int RefreshIntervalMinutes { get; set; } = 30;
+    public bool EmailFavoriteFeeds { get; set; } = false;
 }
 
 public class CommunityPost
@@ -1209,13 +1307,26 @@ public class CommunityPost
     public string? AuthorName { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public ICollection<PostReaction> Reactions { get; set; } = new List<PostReaction>();
+    public ICollection<PostComment> Comments { get; set; } = new List<PostComment>();
 }
 
 public class PostReaction
 {
+    public int Id { get; set; }
     public string PostId { get; set; } = "";
     public string UserId { get; set; } = "";
     public string ReactionType { get; set; } = "";
+    public CommunityPost? Post { get; set; }
+}
+
+public class PostComment
+{
+    public int Id { get; set; }
+    public string PostId { get; set; } = "";
+    public string AuthorId { get; set; } = "";
+    public string? AuthorName { get; set; }
+    public string Content { get; set; } = "";
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public CommunityPost? Post { get; set; }
 }
 
@@ -1235,6 +1346,7 @@ public class AppDbContext : IdentityDbContext<IdentityUser>
     public DbSet<CommunityPost> CommunityPosts => Set<CommunityPost>();
     public DbSet<PostReaction> PostReactions => Set<PostReaction>();
     public DbSet<UserBlock> UserBlocks => Set<UserBlock>();
+    public DbSet<PostComment> PostComments => Set<PostComment>();
 
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
@@ -1274,11 +1386,20 @@ public class AppDbContext : IdentityDbContext<IdentityUser>
                 .WithOne(r => r.Post)
                 .HasForeignKey(r => r.PostId)
                 .OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(e => e.Comments)
+                .WithOne(c => c.Post)
+                .HasForeignKey(c => c.PostId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<PostReaction>(entity =>
         {
-            entity.HasKey(e => new { e.PostId, e.UserId });
+            entity.HasKey(e => e.Id);
+        });
+
+        modelBuilder.Entity<PostComment>(entity =>
+        {
+            entity.HasKey(e => e.Id);
         });
 
         modelBuilder.Entity<UserBlock>(entity =>
@@ -1312,7 +1433,7 @@ record ResendRequest(string Email);
 record CreatePlaylistDto(string Name);
 record UpdatePlaylistDto(string Name);
 record AssignPlaylistDto(string? PlaylistId);
-record UpdateProfileDto(string? DisplayName, string? Bio, string? ProfilePictureUrl, string? CoverPhotoUrl, string? SocialLinks);
+record UpdateProfileDto(string? DisplayName, string? Bio, string? ProfilePictureUrl, string? CoverPhotoUrl, string? SocialLinks, int? KeepArticlesForDays = null, int? RefreshIntervalMinutes = null, bool? EmailFavoriteFeeds = null);
 record CreatePostDto(string Content, string? MediaUrl = null);
 record ReactDto(string ReactionType);
 record Article(int Id, string FeedTitle, string Title, string Link, DateTime PublishDate, string Summary, string? AudioUrl = null, string? ImageUrl = null, bool IsBookmarked = false, bool IsRead = false);

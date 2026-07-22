@@ -76,6 +76,18 @@ img { max-width: 100%; }
 .btn-new-playlist { background: var(--accent); color: #fff; border: 1px solid var(--accent); border-radius: var(--radius-pill); font-size: 0.68rem; font-weight: 600; padding: 0.3rem 0.65rem; cursor: pointer; transition: var(--transition); flex-shrink: 0; white-space: nowrap; }
 .btn-new-playlist:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 
+.btn-add-feed-sidebar { display: block; width: calc(100% - 1.25rem); margin: 0.5rem 0.625rem; padding: 0.5rem; border: 1px dashed var(--border-input); border-radius: var(--radius-sm); background: none; color: var(--text-muted); cursor: pointer; font-size: 0.72rem; font-weight: 500; transition: var(--transition); font-family: inherit; text-align: center; }
+.btn-add-feed-sidebar:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+
+.settings-section { margin-bottom: 1rem; }
+.settings-section-title { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin-bottom: 0.5rem; padding-bottom: 0.35rem; border-bottom: 1px solid var(--border); }
+.form-group { margin-bottom: 0.6rem; }
+.form-group label { display: block; font-size: 0.7rem; font-weight: 500; color: var(--text-muted); margin-bottom: 0.2rem; }
+.form-group input, .form-group textarea, .form-group select { width: 100%; padding: 0.45rem 0.65rem; border: 1px solid var(--border-input); border-radius: var(--radius-sm); font-size: 0.78rem; background: var(--bg-input); color: var(--text-primary); font-family: inherit; transition: var(--transition); }
+.form-group input:focus, .form-group textarea:focus, .form-group select:focus { outline: none; border-color: var(--border-focus); box-shadow: 0 0 0 2px var(--accent-glow); }
+.form-group textarea { resize: vertical; min-height: 50px; }
+.form-group input[type="checkbox"] { width: auto; accent-color: var(--accent); }
+
 /* ═══════════════ USER PROFILE HEADER ═══════════════ */
 .sidebar-profile { display: flex; align-items: center; gap: 0.65rem; padding: 0.65rem 1rem; border-bottom: 1px solid var(--border); }
 .profile-avatar { width: 36px; height: 36px; border-radius: 50%; overflow: hidden; flex-shrink: 0; display: flex; align-items: center; justify-content: center; background: var(--accent-bg); color: var(--accent); }
@@ -89,6 +101,8 @@ img { max-width: 100%; }
 .profile-auth-btn.sign-in-btn:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 .profile-auth-btn.sign-out-btn:hover { color: var(--danger); border-color: var(--danger); }
 .profile-toggles { display: flex; align-items: center; gap: 0.25rem; flex-shrink: 0; }
+.btn-settings-gear { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 0.15rem; border-radius: 4px; font-size: 1.5rem; line-height: 1; transition: var(--transition); flex-shrink: 0; }
+.btn-settings-gear:hover { color: var(--accent); background: var(--accent-bg); }
 
 .ai-quota-counter { padding: 0.5rem 0.65rem; margin: 0 0.65rem; background: var(--card-bg, rgba(255,255,255,0.03)); border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .ai-quota-counter.quota-exhausted { border-color: var(--danger); }
@@ -377,6 +391,28 @@ img { max-width: 100%; }
 .community-react-btn.active { border-color: var(--accent); color: #fff; background: var(--accent); }
 .community-block-btn { display: inline-flex; align-items: center; gap: 0.2rem; background: none; border: none; color: var(--text-muted); font-size: 0.65rem; cursor: pointer; padding: 0.2rem 0.4rem; border-radius: 4px; transition: var(--transition); font-family: inherit; }
 .community-block-btn:hover { color: var(--danger); background: var(--danger-bg); }
+.community-comment-toggle { display: inline-flex; align-items: center; gap: 0.25rem; background: none; border: 1px solid var(--border-input); border-radius: var(--radius-pill); padding: 0.2rem 0.55rem; font-size: 0.7rem; color: var(--text-muted); cursor: pointer; transition: var(--transition); font-family: inherit; }
+.community-comment-toggle:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+.community-comment-box { margin-top: 0.65rem; padding-top: 0.65rem; border-top: 1px solid var(--border); }
+.community-comments { margin-bottom: 0.5rem; }
+.community-comment { display: flex; gap: 0.4rem; padding: 0.3rem 0; font-size: 0.75rem; }
+.community-comment-author { font-weight: 600; color: var(--accent); flex-shrink: 0; }
+.community-comment-text { color: var(--text-primary); word-break: break-word; }
+.community-comment-input-row { display: flex; gap: 0.4rem; margin-top: 0.4rem; }
+.community-comment-input { flex: 1; padding: 0.35rem 0.5rem; border: 1px solid var(--border-input); border-radius: var(--radius-sm); font-size: 0.72rem; background: var(--bg-input); color: var(--text-primary); font-family: inherit; }
+.community-comment-input:focus { outline: none; border-color: var(--border-focus); }
+
+.emoji-picker-popup { position: absolute; bottom: calc(100% + 4px); left: 0; background: var(--bg-modal); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: var(--shadow-md); display: flex; flex-wrap: wrap; gap: 2px; padding: 0.35rem; z-index: 40; max-width: 280px; }
+.emoji-picker-item { font-size: 1.2rem; padding: 0.3rem; cursor: pointer; border-radius: 4px; transition: var(--transition); }
+.emoji-picker-item:hover { background: var(--bg-hover); transform: scale(1.2); }
+.community-reactions { display: flex; gap: 0.35rem; align-items: center; flex-wrap: wrap; position: relative; }
+.community-add-emoji { font-size: 0.8rem; width: 24px; height: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; }
+
+.blocked-users-section { margin: 1rem 1.5rem; }
+.blocked-users-list { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.blocked-user-tag { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.25rem 0.55rem; background: var(--bg-hover); border: 1px solid var(--border); border-radius: var(--radius-pill); font-size: 0.7rem; }
+.blocked-user-unblock { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.8rem; padding: 0; line-height: 1; }
+.blocked-user-unblock:hover { color: var(--danger); }
 
 .profile-spinner { display: flex; align-items: center; justify-content: center; padding: 2rem; color: var(--text-muted); font-size: 0.82rem; gap: 0.5rem; }
 .profile-spinner-icon { width: 20px; height: 20px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }

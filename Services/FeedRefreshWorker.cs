@@ -15,13 +15,13 @@ public sealed class FeedRefreshWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var timer = new PeriodicTimer(TimeSpan.FromMinutes(30));
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(60));
 
         do
         {
             try
             {
-                await RefreshAllFeedsAsync(stoppingToken);
+                await RefreshFeedsAsync(stoppingToken);
             }
             catch (Exception ex)
             {
@@ -31,28 +31,73 @@ public sealed class FeedRefreshWorker : BackgroundService
         while (await timer.WaitForNextTickAsync(stoppingToken));
     }
 
-    private async Task RefreshAllFeedsAsync(CancellationToken ct)
+    private async Task RefreshFeedsAsync(CancellationToken ct)
     {
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
         var articleService = scope.ServiceProvider.GetRequiredService<FeedArticleService>();
 
-        var feedGroups = await db.Feeds
-            .Select(f => new { f.Url, f.Title, f.Username, f.Password, f.UserId, f.GuestSessionId })
-            .GroupBy(f => f.Url)
+        var now = DateTime.UtcNow;
+
+        var subscriptions = await db.Feeds.ToListAsync(ct);
+
+        var userKeys = subscriptions
+            .Select(s => s.UserId ?? s.GuestSessionId)
+            .Where(k => k != null)
+            .Distinct()
+            .ToList();
+
+        var profiles = await db.UserProfiles
+            .Where(p => userKeys.Contains(p.UserId) || userKeys.Contains(p.GuestSessionId))
             .ToListAsync(ct);
 
-        foreach (var group in feedGroups)
+        var profileMap = profiles
+            .SelectMany(p => new[]
+            {
+                (Key: p.UserId, Profile: p),
+                (Key: p.GuestSessionId, Profile: p)
+            })
+            .Where(x => x.Key != null)
+            .GroupBy(x => x.Key!)
+            .ToDictionary(g => g.Key, g => g.First().Profile);
+
+        var dueSubscriptions = subscriptions
+            .Where(s =>
+            {
+                var key = s.UserId ?? s.GuestSessionId;
+                if (key == null) return false;
+                var interval = profileMap.TryGetValue(key, out var profile)
+                    ? profile.RefreshIntervalMinutes
+                    : 30;
+                return s.LastRefreshedAt.AddMinutes(interval) <= now;
+            })
+            .ToList();
+
+        if (dueSubscriptions.Count == 0) return;
+
+        var urlGroups = dueSubscriptions
+            .GroupBy(s => s.Url)
+            .ToList();
+
+        foreach (var group in urlGroups)
         {
             var url = group.Key;
-            var subscribers = group.ToList();
+            var subscribers = subscriptions
+                .Where(s => s.Url == url)
+                .ToList();
 
             try
             {
+                var firstSub = subscribers[0];
                 var articles = await articleService.FetchArticlesAsync(
-                    url, subscribers[0].Title, subscribers[0].Username, subscribers[0].Password, ct);
+                    url, firstSub.Title, firstSub.Username, firstSub.Password, ct);
 
-                if (articles.Count == 0) continue;
+                if (articles.Count == 0)
+                {
+                    foreach (var sub in dueSubscriptions.Where(s => s.Url == url))
+                        sub.LastRefreshedAt = now;
+                    continue;
+                }
 
                 var uniqueArticles = articles
                     .GroupBy(a => a.Link)
@@ -85,27 +130,69 @@ public sealed class FeedRefreshWorker : BackgroundService
                         .ToList();
 
                     if (newArticles.Count > 0)
-                    {
                         db.Articles.AddRange(newArticles);
-                    }
                 }
+
+                foreach (var sub in subscribers)
+                    sub.LastRefreshedAt = now;
 
                 await db.SaveChangesAsync(ct);
-
-                var cutoff = DateTime.UtcNow.AddDays(-30);
-                var oldArticles = await db.Articles
-                    .Where(a => a.PublishDate < cutoff && !a.IsBookmarked)
-                    .ToListAsync(ct);
-                if (oldArticles.Count > 0)
-                {
-                    db.Articles.RemoveRange(oldArticles);
-                    await db.SaveChangesAsync(ct);
-                }
             }
             catch (Exception ex)
             {
                 _logger.LogWarning(ex, "Failed to refresh feed {Url}", url);
             }
         }
+
+        await CleanupOldArticlesAsync(db, subscriptions, profileMap, now, ct);
+    }
+
+    private static async Task CleanupOldArticlesAsync(
+        AppDbContext db,
+        List<FeedSubscription> subscriptions,
+        Dictionary<string, UserProfile> profileMap,
+        DateTime now,
+        CancellationToken ct)
+    {
+        var userKeys = subscriptions
+            .Select(s => s.UserId)
+            .Where(u => u != null)
+            .Cast<string>()
+            .Distinct()
+            .ToList();
+
+        var guestKeys = subscriptions
+            .Select(s => s.GuestSessionId)
+            .Where(g => g != null)
+            .Cast<string>()
+            .Distinct()
+            .Where(g => !userKeys.Contains(g))
+            .ToList();
+
+        foreach (var userId in userKeys)
+        {
+            var days = profileMap.TryGetValue(userId, out var profile)
+                ? profile.KeepArticlesForDays
+                : 30;
+            var cutoff = now.AddDays(-days);
+            var old = await db.Articles
+                .Where(a => a.UserId == userId && a.PublishDate < cutoff && !a.IsBookmarked)
+                .ToListAsync(ct);
+            if (old.Count > 0) db.Articles.RemoveRange(old);
+        }
+
+        foreach (var guestId in guestKeys)
+        {
+            var days = profileMap.TryGetValue(guestId, out var profile)
+                ? profile.KeepArticlesForDays
+                : 30;
+            var cutoff = now.AddDays(-days);
+            var old = await db.Articles
+                .Where(a => a.GuestSessionId == guestId && a.PublishDate < cutoff && !a.IsBookmarked)
+                .ToListAsync(ct);
+            if (old.Count > 0) db.Articles.RemoveRange(old);
+        }
+
+        await db.SaveChangesAsync(ct);
     }
 }

@@ -34,35 +34,47 @@ public sealed class GuestCleanupService : BackgroundService
     {
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        var cutoff = DateTime.UtcNow.AddHours(-24);
+        var now = DateTime.UtcNow;
+        var sessionCutoff = now.AddHours(-24);
 
         var expiredAiUsage = await db.AiUsage
             .Where(u => u.UserId.StartsWith("guest-"))
             .ToListAsync(ct);
         if (expiredAiUsage.Count > 0)
-        {
             db.AiUsage.RemoveRange(expiredAiUsage);
-        }
 
-        var expiredArticles = await db.Articles
-            .Where(a => a.UserId == null && a.GuestSessionId != null && a.CreatedAt < cutoff && !a.IsBookmarked)
+        var guestProfiles = await db.UserProfiles
+            .Where(p => p.UserId == null && p.GuestSessionId != null)
             .ToListAsync(ct);
-        if (expiredArticles.Count > 0)
-        {
-            db.Articles.RemoveRange(expiredArticles);
-        }
+        var profileMap = guestProfiles.ToDictionary(p => p.GuestSessionId!);
+
+        var guestArticles = await db.Articles
+            .Where(a => a.UserId == null && a.GuestSessionId != null && !a.IsBookmarked)
+            .ToListAsync(ct);
+
+        var articlesToRemove = guestArticles
+            .Where(a =>
+            {
+                var days = profileMap.TryGetValue(a.GuestSessionId!, out var profile)
+                    ? profile.KeepArticlesForDays
+                    : 1;
+                var cutoff = now.AddDays(-days);
+                return a.PublishDate < cutoff;
+            })
+            .ToList();
+
+        if (articlesToRemove.Count > 0)
+            db.Articles.RemoveRange(articlesToRemove);
 
         var expiredFeeds = await db.Feeds
-            .Where(f => f.UserId == null && f.GuestSessionId != null && f.CreatedAt < cutoff)
+            .Where(f => f.UserId == null && f.GuestSessionId != null && f.CreatedAt < sessionCutoff)
             .ToListAsync(ct);
         if (expiredFeeds.Count > 0)
-        {
             db.Feeds.RemoveRange(expiredFeeds);
-        }
 
         await db.SaveChangesAsync(ct);
 
-        var total = expiredFeeds.Count + expiredArticles.Count + expiredAiUsage.Count;
+        var total = expiredFeeds.Count + articlesToRemove.Count + expiredAiUsage.Count;
         if (total > 0)
             _logger.LogInformation("Cleaned up {Count} expired guest records", total);
     }
