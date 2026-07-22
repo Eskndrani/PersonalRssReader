@@ -11,7 +11,11 @@ public interface IAiService
     Task<string> GenerateDailySummaryAsync(List<ArticleEntity> articles, string lang = "en");
     Task<string> AskQuestionAsync(string question, string userId, string lang = "en");
     Task<string> SummarizeArticleAsync(int articleId, string userId, string lang = "en");
+    Task<ReadingInsights> GenerateReadingInsightsAsync(List<ArticleEntity> readArticles, int totalRead, int totalBookmarks, List<string> subscribedUrls, string lang = "en");
 }
+
+public record ReadingInsights(string Persona, List<RecommendedFeed> Recommendations);
+public record RecommendedFeed(string Title, string Url, string Reason);
 
 public sealed class AiService : IAiService
 {
@@ -116,6 +120,72 @@ public sealed class AiService : IAiService
 
         return await CallAiApiAsync(BuildSystemPrompt(lang, "deep"), task + "\n\n" + body, maxTokens: 1200) ??
                (lang == "ar" ? $"✨ [ملخص محلي]: {fullText.Truncate(500)}" : $"✨ [Local Summary]: {fullText.Truncate(500)}");
+    }
+
+    public async Task<ReadingInsights> GenerateReadingInsightsAsync(List<ArticleEntity> readArticles, int totalRead, int totalBookmarks, List<string> subscribedUrls, string lang = "en")
+    {
+        if (readArticles.Count == 0)
+        {
+            return new ReadingInsights(
+                lang == "ar" ? "لم تقرأ أي مقالات بعد. ابدأ القراءة للحصول على تحليلات مخصصة!" : "You haven't read any articles yet. Start reading to get personalized insights!",
+                new List<RecommendedFeed>());
+        }
+
+        var history = string.Join("\n", readArticles.Select((a, i) =>
+            $"{i + 1}. [{a.FeedTitle}] {a.Title}"));
+
+        var subscribedSet = new HashSet<string>(subscribedUrls.Select(u => u.Trim().TrimEnd('/').ToLowerInvariant()));
+
+        var systemPrompt = lang == "ar"
+            ? "أنت محلل محتوى محترف. ستحصل على سجل قراءة المستخدم. قم بتحليله وإرجاع كائن JSON صارم (بدون markdown، بدون code fences) يحتوي على:\n- readingPersona: ملخص جذاب من جملتين لعادات القراءة وأهم الاهتمامات.\n- recommendedFeeds: مصفوفة من 3 كائنات، كل منها يحتوي على title (اسم المصدر)، url (رابط RSS حقيقي)، و reason (سبب التوصية بالعربية). لا تقترح مصادر مشترَك فيها بالفعل. استخدم روابط RSS حقيقية معروفة."
+            : "You are a professional content analyst. You will receive the user's reading history. Analyze it and return a strict JSON object (no markdown, no code fences) with:\n- readingPersona: An engaging 2-sentence summary of reading habits and top interests.\n- recommendedFeeds: An array of 3 objects, each with title (source name), url (a real RSS feed URL), and reason (why recommended). Do not suggest feeds the user is already subscribed to. Use well-known, real RSS feed URLs.";
+
+        var userPrompt = lang == "ar"
+            ? $"إجمالي المقالات المقروءة: {totalRead}\nإجمالي المفضلة: {totalBookmarks}\n\nآخر المقالات المقروءة:\n{history}\n\nالمصادر المشترَك فيها حالياً: {string.Join(", ", subscribedUrls)}"
+            : $"Total read articles: {totalRead}\nTotal bookmarks: {totalBookmarks}\n\nRecently read articles:\n{history}\n\nCurrently subscribed feeds: {string.Join(", ", subscribedUrls)}";
+
+        var json = await CallAiApiAsync(systemPrompt, userPrompt, maxTokens: 600);
+
+        if (json is not null)
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(json.Trim());
+                var root = doc.RootElement;
+                var persona = root.TryGetProperty("readingPersona", out var p) ? p.GetString() ?? "" : "";
+                var recs = new List<RecommendedFeed>();
+                if (root.TryGetProperty("recommendedFeeds", out var arr))
+                {
+                    foreach (var item in arr.EnumerateArray())
+                    {
+                        var title = item.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "";
+                        var url = item.TryGetProperty("url", out var u) ? u.GetString() ?? "" : "";
+                        var reason = item.TryGetProperty("reason", out var r) ? r.GetString() ?? "" : "";
+                        if (!string.IsNullOrEmpty(url) && !subscribedSet.Contains(url.Trim().TrimEnd('/').ToLowerInvariant()))
+                            recs.Add(new RecommendedFeed(title, url, reason));
+                    }
+                }
+                return new ReadingInsights(persona, recs);
+            }
+            catch { }
+        }
+
+        return FallbackInsights(readArticles, totalRead, totalBookmarks, lang);
+    }
+
+    private static ReadingInsights FallbackInsights(List<ArticleEntity> articles, int totalRead, int totalBookmarks, string lang)
+    {
+        var topFeeds = articles.GroupBy(a => a.FeedTitle)
+            .OrderByDescending(g => g.Count())
+            .Take(3)
+            .Select(g => g.Key)
+            .ToList();
+
+        var persona = lang == "ar"
+            ? $"لقد قرأت {totalRead} مقالاً مع {totalBookmarks} في المفضلة. اهتماماتك الرئيسية تشمل {string.Join("، ", topFeeds)}."
+            : $"You've read {totalRead} articles with {totalBookmarks} bookmarks. Your top interests include {string.Join(", ", topFeeds)}.";
+
+        return new ReadingInsights(persona, new List<RecommendedFeed>());
     }
 
     private static string BuildSystemPrompt(string lang, string mode)

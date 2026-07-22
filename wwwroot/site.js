@@ -1173,9 +1173,14 @@ function apiFetch(url, options) {
   else delete options.headers["X-Guest-Session"];
   return fetch(url, options).then(function (res) {
     if (!res.ok) {
-      return res.text().then(function (text) {
-        try { var j = JSON.parse(text); throw new Error(j.error || j.message || "Request failed (" + res.status + ")"); }
-        catch (e) { if (e.message !== (j && j.error ? j.error : "")) throw e; throw new Error(text.substring(0, 100) || "Request failed (" + res.status + ")"); }
+      var contentType = res.headers.get("content-type") || "";
+      if (contentType.indexOf("application/json") !== -1) {
+        return res.json().then(function (data) {
+          throw new Error(data.error || data.message || "Request failed (" + res.status + ")");
+        });
+      }
+      return res.text().then(function () {
+        throw new Error("Server error (" + res.status + "). Please try again.");
       });
     }
     return res;
@@ -1210,7 +1215,7 @@ function buildProfileHeader(data) {
   if (!data.isGuest) {
     var firstLetter = (data.email || "U")[0].toUpperCase();
     avatar.style.backgroundColor = getColorForFeed(data.email);
-    avatar.innerHTML = '<a href="/profile" style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;border-radius:50%;text-decoration:none">' +
+    avatar.innerHTML = '<a href="/profile.html" style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;border-radius:50%;text-decoration:none">' +
       '<span class="avatar-letter">' + firstLetter + '</span></a>';
     name.textContent = data.email || "";
     authBtn.textContent = t("logout");

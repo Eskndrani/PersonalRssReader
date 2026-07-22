@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Profile — Personal RSS Reader</title>
+  <link rel="icon" type="image/svg+xml" href="/logo.svg">
+  <link rel="stylesheet" href="/site.css">
+  <style>
+    .profile-page { max-width: 640px; margin: 0 auto; padding-bottom: 2rem; }
+    .profile-nav { display: flex; align-items: center; padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); }
+    .profile-nav-back { background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 0.85rem; padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); transition: var(--transition); font-family: inherit; }
+    .profile-nav-back:hover { color: var(--accent); background: var(--accent-bg); }
+
+    .profile-cover { height: 140px; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #ec4899 100%); position: relative; }
+    .profile-cover img { width: 100%; height: 100%; object-fit: cover; }
+
+    .profile-avatar-lg { width: 80px; height: 80px; border-radius: 50%; border: 3px solid var(--bg-surface); background: var(--accent-bg); color: var(--accent); display: flex; align-items: center; justify-content: center; position: absolute; bottom: -40px; left: 1.5rem; overflow: hidden; }
+    .profile-avatar-lg img { width: 100%; height: 100%; object-fit: cover; }
+    .profile-avatar-lg .avatar-letter-lg { font-size: 1.75rem; font-weight: 700; color: #fff; }
+
+    .profile-header-info { padding: 3rem 1.5rem 1rem; }
+    .profile-display-name { font-size: 1.25rem; font-weight: 700; color: var(--text-heading); }
+    .profile-bio { font-size: 0.85rem; color: var(--text-secondary); margin-top: 0.35rem; line-height: 1.5; }
+    .profile-email { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.15rem; }
+
+    .profile-edit-btn { display: inline-flex; align-items: center; gap: 0.25rem; margin-top: 0.75rem; padding: 0.35rem 0.85rem; border: 1px solid var(--border-input); border-radius: var(--radius-pill); background: none; color: var(--text-secondary); cursor: pointer; font-size: 0.72rem; transition: var(--transition); font-family: inherit; }
+    .profile-edit-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+
+    .profile-edit-form { display: none; padding: 0 1.5rem 1rem; }
+    .profile-edit-form.open { display: block; }
+    .profile-edit-form .form-group { margin-bottom: 0.75rem; }
+    .profile-edit-form label { display: block; font-size: 0.7rem; font-weight: 500; color: var(--text-muted); margin-bottom: 0.25rem; }
+    .profile-edit-form input, .profile-edit-form textarea { width: 100%; padding: 0.5rem 0.75rem; border: 1px solid var(--border-input); border-radius: var(--radius-sm); font-size: 0.8rem; background: var(--bg-input); color: var(--text-primary); font-family: inherit; transition: var(--transition); }
+    .profile-edit-form input:focus, .profile-edit-form textarea:focus { outline: none; border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--accent-glow); }
+    .profile-edit-form textarea { resize: vertical; min-height: 60px; }
+    .profile-edit-actions { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
+
+    .profile-stats { display: flex; gap: 1.5rem; padding: 1rem 1.5rem; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+    .profile-stat { text-align: center; }
+    .profile-stat-value { font-size: 1.35rem; font-weight: 700; color: var(--accent); }
+    .profile-stat-label { font-size: 0.68rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+
+    .profile-section { padding: 1.25rem 1.5rem; }
+    .profile-section-title { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.75rem; }
+
+    .profile-insight-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; }
+    .profile-insight-card p { font-size: 0.85rem; line-height: 1.65; color: var(--text-secondary); }
+
+    .profile-spinner { display: flex; align-items: center; justify-content: center; padding: 2rem; color: var(--text-muted); font-size: 0.82rem; gap: 0.5rem; }
+    .profile-spinner-icon { width: 20px; height: 20px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+
+    .recommended-feed-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 1rem; margin-bottom: 0.65rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+    .recommended-feed-info { flex: 1; min-width: 0; }
+    .recommended-feed-title { font-size: 0.85rem; font-weight: 600; color: var(--text-heading); }
+    .recommended-feed-reason { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.2rem; line-height: 1.4; }
+    .recommended-feed-sub-btn { padding: 0.35rem 0.85rem; border: 1px solid var(--accent); border-radius: var(--radius-pill); background: none; color: var(--accent); cursor: pointer; font-size: 0.68rem; font-weight: 600; transition: var(--transition); flex-shrink: 0; font-family: inherit; }
+    .recommended-feed-sub-btn:hover { background: var(--accent); color: #fff; }
+    .recommended-feed-sub-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .profile-toast { position: fixed; bottom: 1.5rem; right: 1.5rem; background: var(--success); color: #111; padding: 0.65rem 1rem; border-radius: var(--radius-sm); font-size: 0.78rem; font-weight: 500; z-index: 100; animation: toast-in 0.3s ease forwards; }
+    .profile-toast--error { background: var(--danger); color: #fff; }
+
+    .profile-social-links { display: flex; gap: 0.5rem; margin-top: 0.5rem; flex-wrap: wrap; }
+    .profile-social-link { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.25rem 0.65rem; border: 1px solid var(--border-input); border-radius: var(--radius-pill); font-size: 0.7rem; color: var(--text-secondary); text-decoration: none; transition: var(--transition); }
+    .profile-social-link:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+  </style>
+</head>
+<body style="background:var(--bg-deep);font-family:var(--font);color:var(--text-primary)">
+  <div class="profile-page">
+    <div class="profile-nav">
+      <button class="profile-nav-back" onclick="window.location.href='/index.html'">&larr; Back</button>
+    </div>
+
+    <div class="profile-cover" id="profile-cover">
+      <div class="profile-avatar-lg" id="profile-avatar-lg">
+        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+        </svg>
+      </div>
+    </div>
+
+    <div class="profile-header-info">
+      <div class="profile-display-name" id="profile-display-name"></div>
+      <div class="profile-email" id="profile-email-display"></div>
+      <div class="profile-bio" id="profile-bio"></div>
+      <div class="profile-social-links" id="profile-social-links"></div>
+      <button class="profile-edit-btn" id="profile-edit-btn">&#9998; Edit Profile</button>
+    </div>
+
+    <div class="profile-edit-form" id="profile-edit-form">
+      <div class="form-group">
+        <label>Display Name</label>
+        <input type="text" id="edit-name" maxlength="100" placeholder="Your display name">
+      </div>
+      <div class="form-group">
+        <label>Bio</label>
+        <textarea id="edit-bio" maxlength="300" placeholder="A short bio about yourself"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Profile Picture URL</label>
+        <input type="url" id="edit-avatar" placeholder="https://">
+      </div>
+      <div class="form-group">
+        <label>Cover Photo URL</label>
+        <input type="url" id="edit-cover" placeholder="https://">
+      </div>
+      <div class="form-group">
+        <label>Social Links (JSON)</label>
+        <textarea id="edit-social" maxlength="1000" placeholder='[{"label":"GitHub","url":"https://github.com/..."}]'></textarea>
+      </div>
+      <div class="profile-edit-actions">
+        <button class="btn btn-primary" id="btn-save-profile">Save</button>
+        <button class="btn btn-secondary" id="btn-cancel-edit">Cancel</button>
+      </div>
+    </div>
+
+    <div class="profile-stats" id="profile-stats">
+      <div class="profile-stat">
+        <div class="profile-stat-value" id="stat-read">-</div>
+        <div class="profile-stat-label">Articles Read</div>
+      </div>
+      <div class="profile-stat">
+        <div class="profile-stat-value" id="stat-bookmarks">-</div>
+        <div class="profile-stat-label">Bookmarks</div>
+      </div>
+    </div>
+
+    <div class="profile-section">
+      <div class="profile-section-title">Activity &amp; AI Insights</div>
+      <div id="profile-insights-container">
+        <div class="profile-spinner">
+          <div class="profile-spinner-icon"></div>
+          <span>Analyzing your reading habits&hellip;</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="profile-section" id="recommended-section" style="display:none;">
+      <div class="profile-section-title">Recommended for You</div>
+      <div id="recommended-feeds-container"></div>
+    </div>
+  </div>
+
+  <div id="profile-toast" class="profile-toast" style="display:none;"></div>
+
+  <script>
+    var isGuest = false;
+    var guestSessionId = "";
+    var currentProfile = null;
+    var currentEmail = "";
+
+    function getSessionId() {
+      if (!guestSessionId) {
+        guestSessionId = localStorage.getItem("session_id") || "";
+        if (!guestSessionId) {
+          guestSessionId = crypto.randomUUID ? crypto.randomUUID() : "sess-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10);
+          localStorage.setItem("session_id", guestSessionId);
+        }
+      }
+      return guestSessionId;
+    }
+
+    function apiFetch(url, options) {
+      options = options || {};
+      options.credentials = "include";
+      options.headers = options.headers || {};
+      if (isGuest) options.headers["X-Guest-Session"] = getSessionId();
+      else delete options.headers["X-Guest-Session"];
+      return fetch(url, options).then(function (res) {
+        if (!res.ok) {
+          var contentType = res.headers.get("content-type") || "";
+          if (contentType.indexOf("application/json") !== -1) {
+            return res.json().then(function (data) {
+              throw new Error(data.error || data.message || "Request failed (" + res.status + ")");
+            });
+          }
+          return res.text().then(function () {
+            throw new Error("Server error (" + res.status + "). Please try again.");
+          });
+        }
+        return res;
+      });
+    }
+
+    function showToast(msg, isError) {
+      var t = document.getElementById("profile-toast");
+      t.textContent = msg;
+      t.className = "profile-toast" + (isError ? " profile-toast--error" : "");
+      t.style.display = "";
+      setTimeout(function () { t.style.display = "none"; }, 3000);
+    }
+
+    async function checkAuth() {
+      try {
+        var res = await fetch("/api/auth/me", { credentials: "include" });
+        if (res.ok) {
+          var data = await res.json();
+          isGuest = data.isGuest === true;
+          currentEmail = data.email || "";
+          document.getElementById("profile-email-display").textContent = currentEmail;
+        }
+      } catch (e) {}
+    }
+
+    async function loadProfile() {
+      try {
+        var res = await apiFetch("/api/profile");
+        var data = await res.json();
+        currentProfile = data;
+        renderProfile(data);
+      } catch (e) {
+        showToast("Could not load profile.", true);
+      }
+    }
+
+    function renderProfile(p) {
+      document.getElementById("profile-display-name").textContent = p.displayName || currentEmail || "Guest";
+      document.getElementById("profile-bio").textContent = p.bio || "";
+
+      var avatar = document.getElementById("profile-avatar-lg");
+      var nameForAvatar = p.displayName || currentEmail || "Guest";
+      if (p.profilePictureUrl) {
+        avatar.innerHTML = '<img src="' + escapeAttr(p.profilePictureUrl) + '" alt="" onerror="this.parentElement.innerHTML=\'<span class=avatar-letter-lg>' + nameForAvatar[0].toUpperCase() + '</span>\'">';
+      } else {
+        var hue = 0;
+        for (var i = 0; i < nameForAvatar.length; i++) hue = nameForAvatar.charCodeAt(i) + ((hue << 5) - hue);
+        avatar.style.backgroundColor = 'hsl(' + ((hue % 360) + 360) % 360 + ', 55%, 45%)';
+        avatar.innerHTML = '<span class="avatar-letter-lg">' + nameForAvatar[0].toUpperCase() + '</span>';
+      }
+
+      var cover = document.getElementById("profile-cover");
+      if (p.coverPhotoUrl) {
+        var img = document.createElement("img");
+        img.src = p.coverPhotoUrl;
+        img.alt = "";
+        img.onerror = function () { this.remove(); };
+        cover.appendChild(img);
+      }
+
+      var links = document.getElementById("profile-social-links");
+      links.innerHTML = "";
+      if (p.socialLinks) {
+        try {
+          var socials = JSON.parse(p.socialLinks);
+          if (Array.isArray(socials)) {
+            socials.forEach(function (s) {
+              if (s.label && s.url) {
+                var a = document.createElement("a");
+                a.className = "profile-social-link";
+                a.href = s.url;
+                a.target = "_blank";
+                a.rel = "noopener noreferrer";
+                a.textContent = s.label;
+                links.appendChild(a);
+              }
+            });
+          }
+        } catch (e) {}
+      }
+
+      document.getElementById("edit-name").value = p.displayName || "";
+      document.getElementById("edit-bio").value = p.bio || "";
+      document.getElementById("edit-avatar").value = p.profilePictureUrl || "";
+      document.getElementById("edit-cover").value = p.coverPhotoUrl || "";
+      document.getElementById("edit-social").value = p.socialLinks || "";
+    }
+
+    async function loadInsights() {
+      var container = document.getElementById("profile-insights-container");
+      try {
+        var res = await apiFetch("/api/profile/insights");
+        var data = await res.json();
+
+        document.getElementById("stat-read").textContent = data.totalRead || 0;
+        document.getElementById("stat-bookmarks").textContent = data.totalBookmarks || 0;
+
+        var html = '<div class="profile-insight-card"><p>' + escapeHtml(data.readingPersona || "Not enough data to generate insights yet.") + '</p></div>';
+        container.innerHTML = html;
+
+        if (data.recommendedFeeds && data.recommendedFeeds.length > 0) {
+          document.getElementById("recommended-section").style.display = "";
+          var recs = document.getElementById("recommended-feeds-container");
+          recs.innerHTML = "";
+          data.recommendedFeeds.forEach(function (f) {
+            var card = document.createElement("div");
+            card.className = "recommended-feed-card";
+            card.innerHTML = '<div class="recommended-feed-info"><div class="recommended-feed-title">' + escapeHtml(f.title) + '</div><div class="recommended-feed-reason">' + escapeHtml(f.reason) + '</div></div>' +
+              '<button class="recommended-feed-sub-btn" data-url="' + escapeAttr(f.url) + '">+ Subscribe</button>';
+            recs.appendChild(card);
+          });
+          recs.addEventListener("click", function (e) {
+            var btn = e.target.closest(".recommended-feed-sub-btn");
+            if (!btn) return;
+            var url = btn.dataset.url;
+            btn.disabled = true;
+            btn.textContent = "Adding...";
+            apiFetch("/api/feeds", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ url: url })
+            }).then(function () {
+              btn.textContent = "Subscribed!";
+              showToast("Feed added successfully.", false);
+            }).catch(function (err) {
+              btn.disabled = false;
+              btn.textContent = "+ Subscribe";
+              showToast(err.message || "Could not subscribe.", true);
+            });
+          });
+        }
+      } catch (e) {
+        container.innerHTML = '<p style="color:var(--text-muted);font-size:0.82rem;">Could not load insights. Try again later.</p>';
+      }
+    }
+
+    function escapeHtml(str) {
+      var div = document.createElement("div");
+      div.textContent = str ?? "";
+      return div.innerHTML;
+    }
+
+    function escapeAttr(str) {
+      return (str ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    document.addEventListener("DOMContentLoaded", async function () {
+      await checkAuth();
+      await loadProfile();
+      await loadInsights();
+
+      document.getElementById("profile-edit-btn").addEventListener("click", function () {
+        var form = document.getElementById("profile-edit-form");
+        form.classList.toggle("open");
+      });
+
+      document.getElementById("btn-cancel-edit").addEventListener("click", function () {
+        document.getElementById("profile-edit-form").classList.remove("open");
+        if (currentProfile) {
+          document.getElementById("edit-name").value = currentProfile.displayName || "";
+          document.getElementById("edit-bio").value = currentProfile.bio || "";
+          document.getElementById("edit-avatar").value = currentProfile.profilePictureUrl || "";
+          document.getElementById("edit-cover").value = currentProfile.coverPhotoUrl || "";
+          document.getElementById("edit-social").value = currentProfile.socialLinks || "";
+        }
+      });
+
+      document.getElementById("btn-save-profile").addEventListener("click", async function () {
+        var body = {
+          displayName: document.getElementById("edit-name").value.trim() || null,
+          bio: document.getElementById("edit-bio").value.trim() || null,
+          profilePictureUrl: document.getElementById("edit-avatar").value.trim() || null,
+          coverPhotoUrl: document.getElementById("edit-cover").value.trim() || null,
+          socialLinks: document.getElementById("edit-social").value.trim() || null
+        };
+        if (body.socialLinks) {
+          try { JSON.parse(body.socialLinks); } catch (e) {
+            showToast("Social Links must be valid JSON.", true);
+            return;
+          }
+        }
+        try {
+          var res = await apiFetch("/api/profile", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body)
+          });
+          currentProfile = await res.json();
+          renderProfile(currentProfile);
+          document.getElementById("profile-edit-form").classList.remove("open");
+          showToast("Profile saved.", false);
+        } catch (e) {
+          showToast(e.message || "Could not save profile.", true);
+        }
+      });
+    });
+  </script>
+</body>
+</html>

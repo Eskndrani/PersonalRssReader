@@ -145,6 +145,13 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     db.Database.EnsureCreated();
+
+    try
+    {
+        db.Database.ExecuteSqlRaw(
+            "CREATE TABLE IF NOT EXISTS UserProfiles (Id TEXT PRIMARY KEY, UserId TEXT, GuestSessionId TEXT, DisplayName TEXT, Bio TEXT, ProfilePictureUrl TEXT, CoverPhotoUrl TEXT, SocialLinks TEXT)");
+    }
+    catch { }
 }
 
 app.UseAuthentication();
@@ -180,6 +187,106 @@ app.MapGet("/api/quota", async (AppDbContext db, HttpContext http) =>
     var usage = await db.AiUsage.FirstOrDefaultAsync(u => u.UserId == userId && u.Date == today);
     var nextReset = DateTime.UtcNow.Date.AddDays(1);
     return Results.Ok(new { used = usage?.RequestCount ?? 0, limit, nextReset = nextReset.ToString("o") });
+});
+
+app.MapGet("/api/profile", async (AppDbContext db, HttpContext http) =>
+{
+    try
+    {
+        var key = GetUserKey(http);
+        var isGuest = http.User.FindFirstValue(ClaimTypes.NameIdentifier) is null;
+
+        var profile = await db.UserProfiles
+            .FirstOrDefaultAsync(p => p.UserId == key || p.GuestSessionId == key);
+
+        if (profile is null)
+        {
+            profile = new UserProfile
+            {
+                Id = Guid.NewGuid().ToString(),
+                DisplayName = isGuest ? "Guest" : http.User.Identity?.Name
+            };
+            if (isGuest) profile.GuestSessionId = key;
+            else profile.UserId = key;
+            db.UserProfiles.Add(profile);
+            await db.SaveChangesAsync();
+        }
+
+        return Results.Ok(new
+        {
+            profile.Id,
+            profile.DisplayName,
+            profile.Bio,
+            profile.ProfilePictureUrl,
+            profile.CoverPhotoUrl,
+            profile.SocialLinks
+        });
+    }
+    catch (Exception ex)
+    {
+        return Results.Json(new { error = "Could not load profile.", detail = ex.Message }, statusCode: 500);
+    }
+});
+
+app.MapPut("/api/profile", async (UpdateProfileDto dto, AppDbContext db, HttpContext http) =>
+{
+    try
+    {
+        var key = GetUserKey(http);
+        var profile = await db.UserProfiles
+            .FirstOrDefaultAsync(p => p.UserId == key || p.GuestSessionId == key);
+
+        if (profile is null) return Results.Json(new { error = "Profile not found." }, statusCode: 404);
+
+        if (dto.DisplayName is not null) profile.DisplayName = dto.DisplayName;
+        if (dto.Bio is not null) profile.Bio = dto.Bio;
+        if (dto.ProfilePictureUrl is not null) profile.ProfilePictureUrl = dto.ProfilePictureUrl;
+        if (dto.CoverPhotoUrl is not null) profile.CoverPhotoUrl = dto.CoverPhotoUrl;
+        if (dto.SocialLinks is not null) profile.SocialLinks = dto.SocialLinks;
+
+        await db.SaveChangesAsync();
+
+        return Results.Ok(new
+        {
+            profile.Id,
+            profile.DisplayName,
+            profile.Bio,
+            profile.ProfilePictureUrl,
+            profile.CoverPhotoUrl,
+            profile.SocialLinks
+        });
+    }
+    catch (Exception ex)
+    {
+        return Results.Json(new { error = "Could not save profile.", detail = ex.Message }, statusCode: 500);
+    }
+});
+
+app.MapGet("/api/profile/insights", async (
+    AppDbContext db, IAiService ai, HttpContext http,
+    [FromQuery] string lang = "en") =>
+{
+    var key = GetUserKey(http);
+    var readArticles = await db.Articles
+        .Where(a => (a.UserId == key || a.GuestSessionId == key) && a.IsRead)
+        .OrderByDescending(a => a.PublishDate)
+        .Take(50)
+        .ToListAsync();
+
+    var totalRead = await db.Articles
+        .CountAsync(a => (a.UserId == key || a.GuestSessionId == key) && a.IsRead);
+
+    var totalBookmarks = await db.Articles
+        .CountAsync(a => (a.UserId == key || a.GuestSessionId == key) && a.IsBookmarked);
+
+    var subscribedUrls = await db.Feeds
+        .Where(f => f.UserId == key || f.GuestSessionId == key)
+        .Select(f => f.Url)
+        .ToListAsync();
+
+    var insights = await ai.GenerateReadingInsightsAsync(readArticles, totalRead, totalBookmarks, subscribedUrls, lang);
+
+    return Results.Ok(new { readingPersona = insights.Persona, recommendedFeeds = insights.Recommendations, totalRead, totalBookmarks });
 });
 
 app.MapPost("/api/auth/logout", async (SignInManager<IdentityUser> signInManager) =>
@@ -938,12 +1045,25 @@ public class Playlist
     public ICollection<FeedSubscription> Feeds { get; set; } = new List<FeedSubscription>();
 }
 
+public class UserProfile
+{
+    public string Id { get; set; } = "";
+    public string? UserId { get; set; }
+    public string? GuestSessionId { get; set; }
+    public string? DisplayName { get; set; }
+    public string? Bio { get; set; }
+    public string? ProfilePictureUrl { get; set; }
+    public string? CoverPhotoUrl { get; set; }
+    public string? SocialLinks { get; set; }
+}
+
 public class AppDbContext : IdentityDbContext<IdentityUser>
 {
     public DbSet<ArticleEntity> Articles => Set<ArticleEntity>();
     public DbSet<FeedSubscription> Feeds => Set<FeedSubscription>();
     public DbSet<UserAiUsage> AiUsage => Set<UserAiUsage>();
     public DbSet<Playlist> Playlists => Set<Playlist>();
+    public DbSet<UserProfile> UserProfiles => Set<UserProfile>();
 
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
@@ -967,6 +1087,11 @@ public class AppDbContext : IdentityDbContext<IdentityUser>
         });
 
         modelBuilder.Entity<Playlist>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+        });
+
+        modelBuilder.Entity<UserProfile>(entity =>
         {
             entity.HasKey(e => e.Id);
         });
@@ -997,4 +1122,5 @@ record ResendRequest(string Email);
 record CreatePlaylistDto(string Name);
 record UpdatePlaylistDto(string Name);
 record AssignPlaylistDto(string? PlaylistId);
+record UpdateProfileDto(string? DisplayName, string? Bio, string? ProfilePictureUrl, string? CoverPhotoUrl, string? SocialLinks);
 record Article(int Id, string FeedTitle, string Title, string Link, DateTime PublishDate, string Summary, string? AudioUrl = null, string? ImageUrl = null, bool IsBookmarked = false, bool IsRead = false);
