@@ -201,6 +201,20 @@
 
   <div id="toast-container" class="toast-container" aria-live="polite"></div>
 
+  <div id="playlist-delete-modal" class="modal" style="display: none;">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content" style="max-width:420px;">
+      <button class="modal-close" data-i18n-title="close" title="Close">&times;</button>
+      <h2 id="playlist-delete-title">Delete Playlist</h2>
+      <p id="playlist-delete-body" style="color:var(--text-secondary);margin-bottom:1rem;">What would you like to do with the feeds in this playlist?</p>
+      <div class="playlist-delete-actions">
+        <button id="btn-delete-cancel" class="btn btn-secondary">Cancel</button>
+        <button id="btn-delete-keep-feeds" class="btn btn-secondary">Keep Feeds</button>
+        <button id="btn-delete-all" class="btn btn-danger-delete">Delete Playlist &amp; Feeds</button>
+      </div>
+    </div>
+  </div>
+
   <div id="read-modal" class="modal" style="display: none;">
     <div class="modal-backdrop"></div>
     <div class="modal-content">

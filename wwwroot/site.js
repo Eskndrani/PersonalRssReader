@@ -163,6 +163,8 @@ const translations = {
     renamePlaylist: "Rename",
     deletePlaylist: "Delete Playlist",
     moveToPlaylist: "Move to playlist",
+    favoriteAll: "Favorite All",
+    favorited: "Favorited!",
     dailyBriefing: "Daily Briefing",
     dismiss: "Dismiss",
     chatTitle: "Chat with your feeds",
@@ -242,6 +244,8 @@ const translations = {
     renamePlaylist: "إعادة تسمية",
     deletePlaylist: "حذف القائمة",
     moveToPlaylist: "نقل إلى قائمة",
+    favoriteAll: "تفضيل الكل",
+    favorited: "تم التفضيل!",
     dailyBriefing: "الموجز اليومي",
     dismiss: "إغلاق",
     chatTitle: "تحدث مع مصادر الأخبار",
@@ -503,17 +507,64 @@ async function renamePlaylist(id, newName) {
   }
 }
 
-async function deletePlaylist(id) {
-  if (!confirm(t("deletePlaylist") + "?")) return;
+async function deletePlaylist(id, deleteFeeds) {
   try {
-    var res = await apiFetch("/api/playlists/" + id, { method: "DELETE" });
+    var res = await apiFetch("/api/playlists/" + id + "?deleteFeeds=" + (deleteFeeds ? "true" : "false"), { method: "DELETE" });
     if (!res.ok) throw new Error("Failed");
     allPlaylists = allPlaylists.filter(function (p) { return p.id !== id; });
-    allFeeds.forEach(function (f) { if (f.playlistId === id) f.playlistId = null; });
-    renderFeedList(allFeeds);
+    if (deleteFeeds) {
+      allFeeds = allFeeds.filter(function (f) { return f.playlistId !== id; });
+    } else {
+      allFeeds.forEach(function (f) { if (f.playlistId === id) f.playlistId = null; });
+    }
+    var groupEl = document.querySelector('.playlist-group[data-playlist-id="' + id + '"]');
+    if (groupEl) {
+      groupEl.classList.add("playlist-removing");
+      setTimeout(function () { renderFeedList(allFeeds); }, 350);
+    } else {
+      renderFeedList(allFeeds);
+    }
   } catch (e) {
     showToast(e.message || "Could not delete playlist", true);
   }
+}
+
+var pendingDeletePlaylistId = null;
+
+function showPlaylistDeleteModal(playlistId) {
+  pendingDeletePlaylistId = playlistId;
+  document.getElementById("playlist-delete-modal").style.display = "flex";
+}
+
+function hidePlaylistDeleteModal() {
+  document.getElementById("playlist-delete-modal").style.display = "none";
+  pendingDeletePlaylistId = null;
+}
+
+async function favoriteAllInPlaylist(playlistId, menuItem) {
+  try {
+    var res = await apiFetch("/api/playlists/" + playlistId + "/favorite", { method: "PATCH" });
+    if (!res.ok) throw new Error("Failed");
+    allFeeds.forEach(function (f) {
+      if (f.playlistId === playlistId) f.isFavorite = true;
+    });
+    renderFeedList(allFeeds);
+    if (menuItem) {
+      var origText = menuItem.textContent;
+      menuItem.textContent = "\u2714 " + t("favorited");
+      menuItem.classList.add("playlist-menu-item--success");
+      setTimeout(function () {
+        menuItem.textContent = origText;
+        menuItem.classList.remove("playlist-menu-item--success");
+      }, 2000);
+    }
+  } catch (e) {
+    showToast(e.message || "Could not favorite feeds", true);
+  }
+}
+
+function closeAllPlaylistMenus() {
+  document.querySelectorAll(".playlist-menu").forEach(function (m) { m.style.display = "none"; });
 }
 
 async function assignFeedToPlaylist(feedId, playlistId) {
@@ -614,8 +665,12 @@ function renderFeedList(feeds) {
     html += '<span class="playlist-name">' + escapeHtml(playlistName) + '</span>';
     html += '<span class="playlist-count">(' + groupFeeds.length + ')</span>';
     if (playlistId) {
-      html += '<button class="playlist-rename" title="' + escapeAttr(t("renamePlaylist")) + '">\u270E</button>';
-      html += '<button class="playlist-delete" title="' + escapeAttr(t("deletePlaylist")) + '">&times;</button>';
+      html += '<button class="playlist-kebab" data-action="toggle-menu" title="' + escapeAttr("Actions") + '">\u22EE</button>';
+      html += '<div class="playlist-menu" style="display:none;">';
+      html += '<button class="playlist-menu-item" data-action="favorite-all">\u2605 ' + t("favoriteAll") + '</button>';
+      html += '<button class="playlist-menu-item" data-action="rename">\u270E ' + t("renamePlaylist") + '</button>';
+      html += '<button class="playlist-menu-item playlist-menu-item--danger" data-action="delete">\uD83D\uDDD1 ' + t("deletePlaylist") + '</button>';
+      html += '</div>';
     }
     html += '</div>';
     html += '<div class="playlist-feeds">';
@@ -1406,7 +1461,53 @@ function setupListeners() {
     var shareBtn = e.target.closest(".feed-share");
     if (shareBtn) { copyFeedLink(shareBtn.dataset.url); return; }
     var playlistHeader = e.target.closest(".playlist-header");
-    if (playlistHeader && !e.target.closest(".playlist-rename") && !e.target.closest(".playlist-delete")) {
+    if (playlistHeader) {
+      var menuItem = e.target.closest(".playlist-menu-item");
+      if (menuItem) {
+        var menuGroup = menuItem.closest(".playlist-group");
+        var menuPlaylistId = menuGroup.dataset.playlistId;
+        var action = menuItem.dataset.action;
+        if (action === "favorite-all") {
+          favoriteAllInPlaylist(menuPlaylistId, menuItem);
+        } else if (action === "rename") {
+          closeAllPlaylistMenus();
+          var renameName = menuGroup.querySelector(".playlist-name");
+          var currentName = renameName.textContent;
+          var input = document.createElement("input");
+          input.type = "text";
+          input.className = "playlist-rename-input";
+          input.value = currentName;
+          input.addEventListener("keydown", function (ev) {
+            if (ev.key === "Enter") {
+              renamePlaylist(menuPlaylistId, input.value.trim());
+            }
+            if (ev.key === "Enter" || ev.key === "Escape") {
+              input.replaceWith(renameName);
+            }
+          });
+          input.addEventListener("blur", function () {
+            input.replaceWith(renameName);
+          });
+          renameName.replaceWith(input);
+          input.focus();
+          input.select();
+        } else if (action === "delete") {
+          closeAllPlaylistMenus();
+          showPlaylistDeleteModal(menuPlaylistId);
+        }
+        return;
+      }
+
+      var kebabBtn = e.target.closest(".playlist-kebab");
+      if (kebabBtn) {
+        e.stopPropagation();
+        var menu = kebabBtn.parentElement.querySelector(".playlist-menu");
+        var isOpen = menu.style.display !== "none";
+        closeAllPlaylistMenus();
+        if (!isOpen) menu.style.display = "";
+        return;
+      }
+
       var group = playlistHeader.closest(".playlist-group");
       var key = group.dataset.groupKey;
       if (group.classList.contains("collapsed")) {
@@ -1417,38 +1518,6 @@ function setupListeners() {
         collapsedPlaylists.add(key);
       }
       localStorage.setItem("collapsedPlaylists", JSON.stringify(Array.from(collapsedPlaylists)));
-      return;
-    }
-    var renameBtn = e.target.closest(".playlist-rename");
-    if (renameBtn) {
-      var renameHeader = renameBtn.closest(".playlist-header");
-      var renameGroup = renameBtn.closest(".playlist-group");
-      var renameName = renameHeader.querySelector(".playlist-name");
-      var currentName = renameName.textContent;
-      var input = document.createElement("input");
-      input.type = "text";
-      input.className = "playlist-rename-input";
-      input.value = currentName;
-      input.addEventListener("keydown", function (ev) {
-        if (ev.key === "Enter") {
-          renamePlaylist(renameGroup.dataset.playlistId, input.value.trim());
-        }
-        if (ev.key === "Enter" || ev.key === "Escape") {
-          input.replaceWith(renameName);
-        }
-      });
-      input.addEventListener("blur", function () {
-        input.replaceWith(renameName);
-      });
-      renameName.replaceWith(input);
-      input.focus();
-      input.select();
-      return;
-    }
-    var delBtn = e.target.closest(".playlist-delete");
-    if (delBtn) {
-      var delGroup = delBtn.closest(".playlist-group");
-      deletePlaylist(delGroup.dataset.playlistId);
       return;
     }
   });
@@ -1518,6 +1587,31 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btn-new-playlist").addEventListener("click", function () {
     showInlinePlaylistCreator();
   });
+
+  document.getElementById("btn-delete-cancel").addEventListener("click", function () {
+    hidePlaylistDeleteModal();
+  });
+  document.getElementById("btn-delete-keep-feeds").addEventListener("click", function () {
+    var id = pendingDeletePlaylistId;
+    hidePlaylistDeleteModal();
+    if (id) deletePlaylist(id, false);
+  });
+  document.getElementById("btn-delete-all").addEventListener("click", function () {
+    var id = pendingDeletePlaylistId;
+    hidePlaylistDeleteModal();
+    if (id) deletePlaylist(id, true);
+  });
+  var playlistDeleteModal = document.getElementById("playlist-delete-modal");
+  if (playlistDeleteModal) {
+    playlistDeleteModal.querySelector(".modal-close").addEventListener("click", hidePlaylistDeleteModal);
+    playlistDeleteModal.querySelector(".modal-backdrop").addEventListener("click", hidePlaylistDeleteModal);
+  }
+});
+
+document.addEventListener("click", function (e) {
+  if (!e.target.closest(".playlist-menu") && !e.target.closest(".playlist-kebab")) {
+    closeAllPlaylistMenus();
+  }
 });
 
 function showInlinePlaylistCreator() {

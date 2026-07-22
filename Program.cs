@@ -526,7 +526,7 @@ app.MapPut("/api/playlists/{id}", async (string id, UpdatePlaylistDto dto, AppDb
     return Results.Ok(new { playlist.Id, playlist.Name });
 });
 
-app.MapDelete("/api/playlists/{id}", async (string id, AppDbContext db, HttpContext http) =>
+app.MapDelete("/api/playlists/{id}", async (string id, AppDbContext db, HttpContext http, [FromQuery] bool deleteFeeds = false) =>
 {
     var key = GetUserKey(http);
     var playlist = await db.Playlists
@@ -535,13 +535,49 @@ app.MapDelete("/api/playlists/{id}", async (string id, AppDbContext db, HttpCont
 
     if (playlist is null) return Results.NotFound();
 
-    foreach (var feed in playlist.Feeds)
-        feed.PlaylistId = null;
+    if (deleteFeeds)
+    {
+        var feedTitles = playlist.Feeds.Select(f => f.Title).Distinct().ToList();
+        db.Feeds.RemoveRange(playlist.Feeds);
+        await db.SaveChangesAsync();
+        if (feedTitles.Count > 0)
+        {
+            var articles = await db.Articles
+                .Where(a => (a.UserId == key || a.GuestSessionId == key) && feedTitles.Contains(a.FeedTitle))
+                .ToListAsync();
+            if (articles.Count > 0) db.Articles.RemoveRange(articles);
+            await db.SaveChangesAsync();
+        }
+    }
+    else
+    {
+        foreach (var feed in playlist.Feeds)
+            feed.PlaylistId = null;
+        await db.SaveChangesAsync();
+    }
 
     db.Playlists.Remove(playlist);
     await db.SaveChangesAsync();
 
     return Results.NoContent();
+});
+
+app.MapPatch("/api/playlists/{id}/favorite", async (string id, AppDbContext db, HttpContext http) =>
+{
+    var key = GetUserKey(http);
+    var playlist = await db.Playlists
+        .FirstOrDefaultAsync(p => p.Id == id && (p.UserId == key || p.GuestSessionId == key));
+    if (playlist is null) return Results.NotFound();
+
+    var feeds = await db.Feeds
+        .Where(f => f.PlaylistId == id && (f.UserId == key || f.GuestSessionId == key))
+        .ToListAsync();
+
+    foreach (var feed in feeds)
+        feed.IsFavorite = true;
+
+    await db.SaveChangesAsync();
+    return Results.Ok(new { favorited = feeds.Count });
 });
 
 app.MapPatch("/api/feeds/{id}/playlist", async (string id, AssignPlaylistDto dto, AppDbContext db, HttpContext http) =>

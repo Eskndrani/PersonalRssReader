@@ -146,8 +146,9 @@ img { max-width: 100%; }
 .feed-item-card { flex-direction: column; align-items: flex-start; gap: 8px; padding: 10px 1rem; border-bottom: 1px solid var(--border); }
 
 /* ═══════════════ PLAYLIST GROUPS ═══════════════ */
-.playlist-group { border-bottom: 1px solid var(--border); }
-.playlist-header { display: flex; align-items: center; gap: 0.375rem; padding: 0.5rem 1rem; cursor: pointer; user-select: none; transition: var(--transition); }
+.playlist-group { border-bottom: 1px solid var(--border); transition: opacity 0.35s ease, max-height 0.35s ease; }
+.playlist-group.playlist-removing { opacity: 0; max-height: 0; overflow: hidden; }
+.playlist-header { display: flex; align-items: center; gap: 0.375rem; padding: 0.5rem 1rem; cursor: pointer; user-select: none; transition: var(--transition); position: relative; }
 .playlist-header:hover { background: var(--bg-hover); }
 .playlist-header.drag-over { background: var(--accent-bg); border: 1px dashed var(--accent); border-radius: var(--radius-sm); margin: 2px 0.5rem; padding: 0.375rem 0.5rem; }
 .playlist-chevron { width: 12px; height: 12px; flex-shrink: 0; transition: transform 0.2s ease; color: var(--text-muted); }
@@ -155,12 +156,27 @@ img { max-width: 100%; }
 .playlist-group.collapsed .playlist-feeds { display: none; }
 .playlist-name { font-size: 0.7rem; font-weight: 600; color: var(--text-secondary); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .playlist-count { font-size: 0.62rem; color: var(--text-muted); }
-.playlist-rename, .playlist-delete { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 0.15rem; border-radius: 4px; font-size: 0.65rem; opacity: 0; transition: var(--transition); flex-shrink: 0; }
-.playlist-header:hover .playlist-rename, .playlist-header:hover .playlist-delete { opacity: 1; }
-.playlist-rename:hover { color: var(--accent); }
-.playlist-delete:hover { color: var(--danger); }
-.playlist-feeds { border-top: 1px solid var(--border); }
+
+/* ═══════════════ PLAYLIST KEBAB & DROPDOWN ═══════════════ */
+.playlist-kebab { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 0.15rem 0.3rem; border-radius: 4px; font-size: 1rem; line-height: 1; flex-shrink: 0; opacity: 0; transition: var(--transition); }
+.playlist-header:hover .playlist-kebab { opacity: 1; }
+.playlist-kebab:hover { color: var(--text-primary); background: var(--bg-hover); }
+.playlist-menu { position: absolute; right: 0.75rem; top: calc(100% - 4px); z-index: 30; background: var(--bg-modal); border: 1px solid var(--border); border-radius: var(--radius-sm); box-shadow: var(--shadow-md); min-width: 160px; overflow: hidden; }
+.playlist-menu-item { display: block; width: 100%; padding: 0.45rem 0.85rem; border: none; background: none; color: var(--text-primary); font-size: 0.72rem; text-align: left; cursor: pointer; transition: var(--transition); font-family: inherit; }
+.playlist-menu-item:hover { background: var(--bg-hover); }
+.playlist-menu-item--danger { color: var(--danger); }
+.playlist-menu-item--danger:hover { background: var(--danger-bg); }
+.playlist-menu-item--success { color: var(--success); }
+
+/* ═══════════════ RENAME INPUT ═══════════════ */
 .playlist-rename-input { flex: 1; min-width: 0; padding: 0.15rem 0.35rem; border: 1px solid var(--accent); border-radius: 4px; font-size: 0.7rem; font-weight: 600; background: var(--bg-input); color: var(--text-primary); }
+.playlist-feeds { border-top: 1px solid var(--border); }
+
+/* ═══════════════ DELETE MODAL ═══════════════ */
+.btn-danger-delete { display: inline-flex; align-items: center; justify-content: center; gap: 0.375rem; padding: 0.5rem 0.85rem; border: 1px solid var(--danger); border-radius: var(--radius-pill); font-size: 0.78rem; font-weight: 500; background: var(--danger); color: #fff; cursor: pointer; transition: var(--transition); white-space: nowrap; font-family: inherit; }
+.btn-danger-delete:hover { background: #e05555; border-color: #e05555; }
+.playlist-delete-actions { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.25rem; }
+.playlist-delete-actions .btn { justify-content: center; }
 
 /* ═══════════════ INLINE PLAYLIST CREATOR ═══════════════ */
 .inline-playlist-creator { display: flex; gap: 0.35rem; padding: 0.5rem 1rem; border-bottom: 1px solid var(--border); }
