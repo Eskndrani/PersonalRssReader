@@ -178,6 +178,28 @@ using (var scope = app.Services.CreateScope())
         db.Database.ExecuteSqlRaw("ALTER TABLE UserProfiles ADD COLUMN RefreshIntervalMinutes INTEGER NOT NULL DEFAULT 30");
     if (!existingColumns.Contains("EmailFavoriteFeeds"))
         db.Database.ExecuteSqlRaw("ALTER TABLE UserProfiles ADD COLUMN EmailFavoriteFeeds INTEGER NOT NULL DEFAULT 0");
+    if (!existingColumns.Contains("DailySummary"))
+        db.Database.ExecuteSqlRaw("ALTER TABLE UserProfiles ADD COLUMN DailySummary TEXT");
+    if (!existingColumns.Contains("DailySummaryUpdatedAt"))
+        db.Database.ExecuteSqlRaw("ALTER TABLE UserProfiles ADD COLUMN DailySummaryUpdatedAt TEXT");
+    if (!existingColumns.Contains("AiInsights"))
+        db.Database.ExecuteSqlRaw("ALTER TABLE UserProfiles ADD COLUMN AiInsights TEXT");
+    if (!existingColumns.Contains("AiInsightsUpdatedAt"))
+        db.Database.ExecuteSqlRaw("ALTER TABLE UserProfiles ADD COLUMN AiInsightsUpdatedAt TEXT");
+
+    var articleColumns = new HashSet<string>();
+    using (var artCmd = db.Database.GetDbConnection().CreateCommand())
+    {
+        artCmd.CommandText = "PRAGMA table_info(Articles)";
+        db.Database.GetDbConnection().Open();
+        using (var reader = artCmd.ExecuteReader())
+        {
+            while (reader.Read()) articleColumns.Add(reader.GetString(1));
+        }
+        db.Database.GetDbConnection().Close();
+    }
+    if (!articleColumns.Contains("AiSummary"))
+        db.Database.ExecuteSqlRaw("ALTER TABLE Articles ADD COLUMN AiSummary TEXT");
 
     var feedColumns = new HashSet<string>();
     using (var feedCmd = db.Database.GetDbConnection().CreateCommand())
@@ -249,13 +271,13 @@ app.MapGet("/api/settings", async (AppDbContext db, HttpContext http) =>
         var profile = await db.UserProfiles
             .FirstOrDefaultAsync(p => p.UserId == key || p.GuestSessionId == key);
 
-        if (profile is null)
-        {
-            profile = new UserProfile
+            if (profile is null)
             {
-                Id = Guid.NewGuid().ToString(),
-                DisplayName = isGuest ? "Guest" : http.User.Identity?.Name
-            };
+                profile = new UserProfile
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    DisplayName = isGuest ? FormatGuestName(key) : http.User.Identity?.Name
+                };
             if (isGuest) profile.GuestSessionId = key;
             else profile.UserId = key;
             db.UserProfiles.Add(profile);
@@ -334,19 +356,46 @@ app.MapPut("/api/settings", async (UpdateProfileDto dto, AppDbContext db, HttpCo
 
 app.MapGet("/api/profile/insights", async (
     AppDbContext db, IAiService ai, HttpContext http,
-    [FromQuery] string lang = "en") =>
+    [FromQuery] string lang = "en", [FromQuery] bool forceRefresh = false) =>
 {
     var key = GetUserKey(http);
+    var profile = await db.UserProfiles.FirstOrDefaultAsync(p => p.UserId == key || p.GuestSessionId == key);
+
+    if (!forceRefresh && profile is not null && !string.IsNullOrEmpty(profile.AiInsights))
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(profile.AiInsights);
+            var root = doc.RootElement;
+            var cachedPersona = root.TryGetProperty("readingPersona", out var p) ? p.GetString() ?? "" : "";
+            var recs = new List<RecommendedFeed>();
+            if (root.TryGetProperty("recommendedFeeds", out var arr))
+            {
+                foreach (var item in arr.EnumerateArray())
+                {
+                    var title = item.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "";
+                    var url = item.TryGetProperty("url", out var u) ? u.GetString() ?? "" : "";
+                    var reason = item.TryGetProperty("reason", out var r) ? r.GetString() ?? "" : "";
+                    recs.Add(new RecommendedFeed(title, url, reason));
+                }
+            }
+            var totalRead = await db.Articles.CountAsync(a => (a.UserId == key || a.GuestSessionId == key) && a.IsRead);
+            var totalBookmarks = await db.Articles.CountAsync(a => (a.UserId == key || a.GuestSessionId == key) && a.IsBookmarked);
+            return Results.Ok(new { readingPersona = cachedPersona, recommendedFeeds = recs, totalRead, totalBookmarks, updatedAt = profile.AiInsightsUpdatedAt });
+        }
+        catch { }
+    }
+
     var readArticles = await db.Articles
         .Where(a => (a.UserId == key || a.GuestSessionId == key) && a.IsRead)
         .OrderByDescending(a => a.PublishDate)
         .Take(50)
         .ToListAsync();
 
-    var totalRead = await db.Articles
+    var totalReadFresh = await db.Articles
         .CountAsync(a => (a.UserId == key || a.GuestSessionId == key) && a.IsRead);
 
-    var totalBookmarks = await db.Articles
+    var totalBookmarksFresh = await db.Articles
         .CountAsync(a => (a.UserId == key || a.GuestSessionId == key) && a.IsBookmarked);
 
     var subscribedUrls = await db.Feeds
@@ -354,9 +403,31 @@ app.MapGet("/api/profile/insights", async (
         .Select(f => f.Url)
         .ToListAsync();
 
-    var insights = await ai.GenerateReadingInsightsAsync(readArticles, totalRead, totalBookmarks, subscribedUrls, lang);
+    var insights = await ai.GenerateReadingInsightsAsync(readArticles, totalReadFresh, totalBookmarksFresh, subscribedUrls, lang);
 
-    return Results.Ok(new { readingPersona = insights.Persona, recommendedFeeds = insights.Recommendations, totalRead, totalBookmarks });
+    var cacheJson = JsonSerializer.Serialize(new { readingPersona = insights.Persona, recommendedFeeds = insights.Recommendations });
+    var now = DateTime.UtcNow;
+
+    if (profile is not null)
+    {
+        profile.AiInsights = cacheJson;
+        profile.AiInsightsUpdatedAt = now;
+    }
+    else
+    {
+        var isGuest = http.User.FindFirstValue(ClaimTypes.NameIdentifier) is null;
+        profile = new UserProfile
+        {
+            Id = Guid.NewGuid().ToString(),
+            AiInsights = cacheJson,
+            AiInsightsUpdatedAt = now
+        };
+        if (isGuest) profile.GuestSessionId = key;
+        else profile.UserId = key;
+        db.UserProfiles.Add(profile);
+    }
+    await db.SaveChangesAsync();
+    return Results.Ok(new { readingPersona = insights.Persona, recommendedFeeds = insights.Recommendations, totalRead = totalReadFresh, totalBookmarks = totalBookmarksFresh, updatedAt = now });
 });
 
 app.MapGet("/api/community/posts", async (AppDbContext db, HttpContext http) =>
@@ -430,7 +501,7 @@ app.MapPost("/api/community/posts", async (CreatePostDto dto, AppDbContext db, H
     var profile = await db.UserProfiles
         .FirstOrDefaultAsync(p => p.UserId == key || p.GuestSessionId == key);
     var authorName = profile?.DisplayName
-        ?? (isGuest ? "Guest-" + (http.Request.Headers["X-Guest-Session"].FirstOrDefault() ?? "anon").Substring(0, Math.Min(6, (http.Request.Headers["X-Guest-Session"].FirstOrDefault() ?? "anon").Length))
+        ?? (isGuest ? FormatGuestName(http.Request.Headers["X-Guest-Session"].FirstOrDefault() ?? "anon")
             : http.User.Identity?.Name ?? "User");
 
     var post = new CommunityPost
@@ -547,7 +618,7 @@ app.MapPost("/api/community/posts/{id}/comments", async (string id, CreatePostDt
     var profile = await db.UserProfiles
         .FirstOrDefaultAsync(p => p.UserId == key || p.GuestSessionId == key);
     var authorName = profile?.DisplayName
-        ?? (isGuest ? "Guest-" + (http.Request.Headers["X-Guest-Session"].FirstOrDefault() ?? "anon").Substring(0, Math.Min(6, (http.Request.Headers["X-Guest-Session"].FirstOrDefault() ?? "anon").Length))
+        ?? (isGuest ? FormatGuestName(http.Request.Headers["X-Guest-Session"].FirstOrDefault() ?? "anon")
             : http.User.Identity?.Name ?? "User");
 
     var comment = new PostComment
@@ -1099,6 +1170,46 @@ app.MapPatch("/api/feeds/{id}/playlist", async (string id, AssignPlaylistDto dto
     return Results.Ok(new { feed.Id, feed.PlaylistId });
 });
 
+app.MapPost("/api/feeds/favorite-digest", async (HttpContext context, AppDbContext db, IEmailService emailService) =>
+{
+    var userId = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
+    if (userId is null) return Results.Unauthorized();
+
+    var identityUser = await db.Users.FirstOrDefaultAsync(u => u.Id == userId);
+    if (identityUser?.Email is null) return Results.BadRequest("User email not found.");
+
+    var favoriteFeedTitles = await db.Feeds
+        .Where(f => f.UserId == userId && f.IsFavorite)
+        .Select(f => f.Title)
+        .ToListAsync();
+
+    if (favoriteFeedTitles.Count == 0)
+        return Results.BadRequest(new { error = "No favorite feeds found." });
+
+    var articles = await db.Articles
+        .Where(a => a.UserId == userId && favoriteFeedTitles.Contains(a.FeedTitle))
+        .OrderByDescending(a => a.PublishDate)
+        .Take(10)
+        .ToListAsync();
+
+    if (articles.Count == 0)
+        return Results.BadRequest(new { error = "No favorite articles found." });
+
+    await emailService.SendFavoriteDigestAsync(identityUser.Email, userId, $"{context.Request.Scheme}://{context.Request.Host}", articles);
+    return Results.Ok(new { sent = true, count = articles.Count });
+}).RequireAuthorization();
+
+app.MapGet("/api/feeds/unfavorite-from-email", async (string userId, string feedTitle, AppDbContext db) =>
+{
+    var feed = await db.Feeds.FirstOrDefaultAsync(f => f.UserId == userId && f.Title == feedTitle);
+    if (feed is not null)
+    {
+        feed.IsFavorite = false;
+        await db.SaveChangesAsync();
+    }
+    return Results.Content("<div style='font-family:sans-serif;text-align:center;padding:50px;color:#f1f5f9;background:#0f172a;height:100vh;'><h2>Feed Removed from Favorites</h2><p>You will no longer receive emails for this feed.</p></div>", "text/html");
+});
+
 app.MapGet("/api/news", async (
     AppDbContext db, FeedArticleService articleService,
     HttpContext http, [FromQuery] int? retentionDays, [FromQuery] string? playlist, CancellationToken ct) =>
@@ -1302,34 +1413,88 @@ app.MapPost("/api/chat", async (
 
 app.MapGet("/api/news/daily-briefing", async (
     AppDbContext db, IAiService ai, HttpContext http,
-    [FromQuery] string lang = "en") =>
+    [FromQuery] string lang = "en", [FromQuery] bool forceRefresh = false) =>
 {
+    var userKey = GetUserKey(http);
+    var profile = await db.UserProfiles.FirstOrDefaultAsync(p => p.UserId == userKey || p.GuestSessionId == userKey);
+
+    if (!forceRefresh && profile is not null && !string.IsNullOrEmpty(profile.DailySummary))
+        return Results.Ok(new { summary = profile.DailySummary, updatedAt = profile.DailySummaryUpdatedAt });
+
     var (quotaKey, limit, errMsg) = GetQuotaParams(http);
     if (!await CheckAiQuotaAsync(db, quotaKey, limit)) return Results.Json(new { error = errMsg }, statusCode: 429);
-    var userKey = GetUserKey(http);
+
     var articles = await db.Articles
         .Where(a => (a.UserId == userKey || a.GuestSessionId == userKey) && !a.IsRead)
         .OrderByDescending(a => a.PublishDate)
         .Take(10)
         .ToListAsync();
     var summary = await ai.GenerateDailySummaryAsync(articles, lang);
-    return Results.Ok(new { summary });
+    var now = DateTime.UtcNow;
+
+    if (profile is not null)
+    {
+        profile.DailySummary = summary;
+        profile.DailySummaryUpdatedAt = now;
+    }
+    else
+    {
+        var isGuest = http.User.FindFirstValue(ClaimTypes.NameIdentifier) is null;
+        profile = new UserProfile
+        {
+            Id = Guid.NewGuid().ToString(),
+            DailySummary = summary,
+            DailySummaryUpdatedAt = now
+        };
+        if (isGuest) profile.GuestSessionId = userKey;
+        else profile.UserId = userKey;
+        db.UserProfiles.Add(profile);
+    }
+    await db.SaveChangesAsync();
+    return Results.Ok(new { summary, updatedAt = now });
 }).RequireRateLimiting("AiEndpointPolicy");
 
 app.MapGet("/api/ai/summary", async (
     IAiService ai, AppDbContext db, HttpContext http,
-    [FromQuery] string lang = "en") =>
+    [FromQuery] string lang = "en", [FromQuery] bool forceRefresh = false) =>
 {
+    var userKey = GetUserKey(http);
+    var profile = await db.UserProfiles.FirstOrDefaultAsync(p => p.UserId == userKey || p.GuestSessionId == userKey);
+
+    if (!forceRefresh && profile is not null && !string.IsNullOrEmpty(profile.DailySummary))
+        return Results.Ok(new { summary = profile.DailySummary, updatedAt = profile.DailySummaryUpdatedAt });
+
     var (quotaKey, limit, errMsg) = GetQuotaParams(http);
     if (!await CheckAiQuotaAsync(db, quotaKey, limit)) return Results.Json(new { error = errMsg }, statusCode: 429);
-    var userKey = GetUserKey(http);
+
     var articles = await db.Articles
         .Where(a => (a.UserId == userKey || a.GuestSessionId == userKey) && !a.IsRead)
         .OrderByDescending(a => a.PublishDate)
         .Take(15)
         .ToListAsync();
     var summary = await ai.GenerateDailySummaryAsync(articles, lang);
-    return Results.Ok(new { summary });
+    var now = DateTime.UtcNow;
+
+    if (profile is not null)
+    {
+        profile.DailySummary = summary;
+        profile.DailySummaryUpdatedAt = now;
+    }
+    else
+    {
+        var isGuest = http.User.FindFirstValue(ClaimTypes.NameIdentifier) is null;
+        profile = new UserProfile
+        {
+            Id = Guid.NewGuid().ToString(),
+            DailySummary = summary,
+            DailySummaryUpdatedAt = now
+        };
+        if (isGuest) profile.GuestSessionId = userKey;
+        else profile.UserId = userKey;
+        db.UserProfiles.Add(profile);
+    }
+    await db.SaveChangesAsync();
+    return Results.Ok(new { summary, updatedAt = now });
 }).RequireRateLimiting("AiEndpointPolicy");
 
 app.MapPost("/api/ai/chat", async (
@@ -1345,12 +1510,21 @@ app.MapPost("/api/ai/chat", async (
 
 app.MapGet("/api/ai/summary/article/{id:int}", async (
     int id, IAiService ai, AppDbContext db, HttpContext http,
-    [FromQuery] string lang = "en") =>
+    [FromQuery] string lang = "en", [FromQuery] bool forceRefresh = false) =>
 {
+    var userKey = GetUserKey(http);
+    var article = await db.Articles.FirstOrDefaultAsync(a => a.Id == id && (a.UserId == userKey || a.GuestSessionId == userKey));
+    if (article is null) return Results.NotFound();
+
+    if (!forceRefresh && !string.IsNullOrEmpty(article.AiSummary))
+        return Results.Ok(new { summary = article.AiSummary });
+
     var (quotaKey, limit, errMsg) = GetQuotaParams(http);
     if (!await CheckAiQuotaAsync(db, quotaKey, limit)) return Results.Json(new { error = errMsg }, statusCode: 429);
-    var userKey = GetUserKey(http);
+
     var summary = await ai.SummarizeArticleAsync(id, userKey, lang);
+    article.AiSummary = summary;
+    await db.SaveChangesAsync();
     return Results.Ok(new { summary });
 }).RequireRateLimiting("AiEndpointPolicy");
 
@@ -1380,6 +1554,16 @@ static string? GetFaviconUrl(string feedUrl)
 
 static string NormalizeUrl(string url) =>
     url.Trim().TrimEnd('/').ToLowerInvariant().Replace("https://", "http://");
+
+static string FormatGuestName(string rawId)
+{
+    var clean = rawId ?? "";
+    if (clean.StartsWith("guest-", StringComparison.OrdinalIgnoreCase))
+        clean = clean[6..];
+    if (clean.StartsWith("Guest-", StringComparison.OrdinalIgnoreCase))
+        clean = clean[6..];
+    return "Guest-" + clean[..Math.Min(6, clean.Length)];
+}
 
 static (string userId, int limit, string errMsg) GetQuotaParams(HttpContext http)
 {
@@ -1423,6 +1607,7 @@ public class ArticleEntity
     public string? UserId { get; set; }
     public string? GuestSessionId { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public string? AiSummary { get; set; }
 }
 
 public class FeedSubscription
@@ -1465,6 +1650,10 @@ public class UserProfile
     public int KeepArticlesForDays { get; set; } = 30;
     public int RefreshIntervalMinutes { get; set; } = 30;
     public bool EmailFavoriteFeeds { get; set; } = false;
+    public string? DailySummary { get; set; }
+    public DateTime? DailySummaryUpdatedAt { get; set; }
+    public string? AiInsights { get; set; }
+    public DateTime? AiInsightsUpdatedAt { get; set; }
 }
 
 public class CommunityPost

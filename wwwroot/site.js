@@ -21,7 +21,7 @@ function formatDate(dateStr) {
 }
 
 function timeSince(dateString) {
-  const date = new Date(dateString);
+  const date = new Date(dateString.endsWith('Z') ? dateString : dateString + 'Z');
   const seconds = Math.floor((new Date() - date) / 1000);
   let interval = seconds / 31536000;
   if (interval > 1) return Math.floor(interval) + "y ago";
@@ -322,7 +322,8 @@ function applyTranslations() {
     var key = el.getAttribute("data-i18n-title");
     if (key) el.title = t(key);
   });
-  document.getElementById("feed-search-sidebar").placeholder = t("placeholderSearch");
+  var searchSidebar = document.getElementById("feed-search-sidebar");
+  if (searchSidebar) searchSidebar.placeholder = t("placeholderSearch");
 }
 
 function initLocale() {
@@ -344,7 +345,7 @@ function applyLocale() {
   var profileName = document.getElementById("profile-name");
   var profileBtn = document.getElementById("profile-auth-btn");
   if (profileName && isGuest) {
-    profileName.textContent = t("guestAccount");
+    profileName.textContent = formatGuestName(getSessionId());
   }
   if (profileBtn) {
     profileBtn.textContent = isGuest ? t("signInRegister") : t("logout");
@@ -1187,6 +1188,7 @@ function setupAddFeedForm() {
       await loadFeeds();
       if (result.added > 0 && result.failed === 0) showToast(t("feedsAdded", { added: result.added }), false);
       else if (result.failed > 0) showToast(t("batchAdded", { added: result.added, failed: result.failed }), true);
+      else if (urls.length > 0) showToast("This feed is already in your subscriptions.", true);
     } catch (err) { showToast(err.message, true); }
     finally { btn.disabled = false; btn.textContent = t("add"); }
   });
@@ -1248,6 +1250,11 @@ function getSessionId() {
     }
   }
   return guestSessionId;
+}
+
+function formatGuestName(sessionId) {
+  var cleanId = (sessionId || "").replace(/^guest-?/i, "");
+  return "Guest-" + cleanId.substring(0, 6);
 }
 
 var quotaTimer = null;
@@ -1362,11 +1369,13 @@ function buildProfileHeader(data) {
       await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
       window.location.href = "/index.html";
     };
+    var digestBtn = document.getElementById("btn-send-digest");
+    if (digestBtn) digestBtn.style.display = "";
   } else {
     avatar.style.backgroundColor = "";
     avatar.innerHTML = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
       '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>';
-    name.textContent = t("guestAccount");
+    name.textContent = formatGuestName(getSessionId());
     authBtn.textContent = t("signInRegister");
     authBtn.className = "profile-auth-btn sign-in-btn";
     authBtn.onclick = function () { window.location.href = "/welcome.html"; };
@@ -1406,23 +1415,27 @@ function setupAuthorized() {
 }
 
 function setupBriefing() {
-  document.getElementById("btn-daily-briefing").addEventListener("click", async function () {
+  var briefingTimestamp = document.getElementById("briefing-timestamp");
+
+  async function fetchBriefing(forceRefresh) {
     var btn = document.getElementById("btn-daily-briefing");
     var card = document.getElementById("briefing-card");
     var content = document.getElementById("briefing-content");
+    var refreshBtn = document.getElementById("btn-refresh-briefing");
 
     btn.disabled = true;
     btn.classList.add("btn-refreshing");
+    if (refreshBtn) { refreshBtn.disabled = true; refreshBtn.classList.add("btn-refreshing"); }
     card.style.display = "block";
     content.textContent = "Generating your briefing...";
+    briefingTimestamp.textContent = "";
 
     try {
-      var res;
       if (isGuest) {
         var top = allArticles.slice(0, 5).map(function(a) { return decodeHtml(a.title) + ": " + decodeHtml(a.summary); }).join("\n\n");
         var briefingHeaders = { "Content-Type": "application/json" };
         briefingHeaders["X-Guest-Session"] = getSessionId();
-        res = await fetch("/api/ai/chat?lang=" + currentLocale, {
+        var res = await fetch("/api/ai/chat?lang=" + currentLocale, {
           method: "POST", headers: briefingHeaders,
           body: JSON.stringify({ message: "Generate a daily news briefing from these articles:\n\n" + top }),
           credentials: "include"
@@ -1433,11 +1446,16 @@ function setupBriefing() {
         content.innerHTML = marked.parse(d.response);
         updateQuotaUI();
       } else {
-        res = await fetch("/api/news/daily-briefing?lang=" + currentLocale, { credentials: "include" });
+        var url = "/api/news/daily-briefing?lang=" + currentLocale;
+        if (forceRefresh) url += "&forceRefresh=true";
+        res = await fetch(url, { credentials: "include" });
         if (res.status === 429) { var qdata = await res.json(); content.textContent = qdata.error; return; }
         if (!res.ok) throw new Error("Failed to generate briefing");
         var data = await res.json();
         content.innerHTML = marked.parse(data.summary);
+        if (data.updatedAt) {
+          briefingTimestamp.textContent = "Updated " + timeSince(data.updatedAt);
+        }
         updateQuotaUI();
       }
     } catch (err) {
@@ -1445,8 +1463,16 @@ function setupBriefing() {
     } finally {
       btn.disabled = false;
       btn.classList.remove("btn-refreshing");
-      btn.classList.remove("btn-refreshing");
+      if (refreshBtn) { refreshBtn.disabled = false; refreshBtn.classList.remove("btn-refreshing"); }
     }
+  }
+
+  document.getElementById("btn-daily-briefing").addEventListener("click", function () {
+    fetchBriefing(false);
+  });
+
+  document.getElementById("btn-refresh-briefing").addEventListener("click", function () {
+    fetchBriefing(true);
   });
 
   document.getElementById("btn-dismiss-briefing").addEventListener("click", function () {
@@ -1596,6 +1622,23 @@ function setupButtons() {
     renderFeedList(allFeeds);
     renderPage(1);
   });
+
+  var sendDigestBtn = document.getElementById("btn-send-digest");
+  if (sendDigestBtn) {
+    sendDigestBtn.addEventListener("click", async function () {
+      sendDigestBtn.disabled = true;
+      sendDigestBtn.textContent = "Sending...";
+      try {
+        await apiFetch("/api/feeds/favorite-digest", { method: "POST" });
+        showToast("Digest sent successfully.", false);
+      } catch (err) {
+        showToast(err.message || "Could not send digest.", true);
+      } finally {
+        sendDigestBtn.disabled = false;
+        sendDigestBtn.textContent = "Send Digest by Email";
+      }
+    });
+  }
 }
 
 async function loadCommunityPosts() {

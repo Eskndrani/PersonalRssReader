@@ -39,6 +39,11 @@
 
     .profile-section { padding: 1.25rem 1.5rem; }
     .profile-section-title { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.75rem; }
+    .profile-insights-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }
+    .profile-insights-header .profile-section-title { margin-bottom: 0; }
+    .profile-insights-actions { display: flex; align-items: center; gap: 0.5rem; }
+    .profile-insights-timestamp { font-size: 0.68rem; color: var(--text-muted); }
+    .btn-refreshing { opacity: 0.6; pointer-events: none; }
 
     .profile-insight-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem; }
     .profile-insight-card p { font-size: 0.85rem; line-height: 1.65; color: var(--text-secondary); }
@@ -60,6 +65,11 @@
     .profile-social-links { display: flex; gap: 0.5rem; margin-top: 0.5rem; flex-wrap: wrap; }
     .profile-social-link { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.25rem 0.65rem; border: 1px solid var(--border-input); border-radius: var(--radius-pill); font-size: 0.7rem; color: var(--text-secondary); text-decoration: none; transition: var(--transition); }
     .profile-social-link:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-bg); }
+    .social-link-row { display: flex; gap: 0.35rem; margin-bottom: 0.35rem; align-items: center; }
+    .social-link-row input { flex: 1; min-width: 0; padding: 0.4rem 0.5rem; border: 1px solid var(--border-input); border-radius: var(--radius-sm); font-size: 0.72rem; background: var(--bg-input); color: var(--text-primary); font-family: inherit; }
+    .social-link-row input:focus { outline: none; border-color: var(--border-focus); box-shadow: 0 0 0 2px var(--accent-glow); }
+    .social-link-remove { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1rem; padding: 0.2rem 0.4rem; line-height: 1; transition: var(--transition); }
+    .social-link-remove:hover { color: var(--danger); }
 
     .guest-notice { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 0.75rem 1rem; margin-bottom: 1rem; font-size: 0.75rem; color: var(--text-muted); line-height: 1.5; }
     .form-group { margin-bottom: 0.6rem; }
@@ -128,8 +138,9 @@
         <input type="url" id="edit-cover" placeholder="https://">
       </div>
       <div class="form-group">
-        <label>Social Links (JSON)</label>
-        <textarea id="edit-social" maxlength="1000" placeholder='[{"label":"GitHub","url":"https://github.com/..."}]'></textarea>
+        <label>Social Links</label>
+        <div id="social-links-rows"></div>
+        <button type="button" class="btn-secondary" id="btn-add-social" style="font-size:0.7rem;padding:0.3rem 0.6rem;margin-top:0.35rem;">+ Add Social Link</button>
       </div>
       <div style="display:flex;gap:0.5rem;margin-top:0.75rem;">
         <button class="btn-primary" id="btn-save-profile">Save</button>
@@ -186,7 +197,13 @@
     </div>
 
     <div class="profile-section">
-      <div class="profile-section-title">Activity &amp; AI Insights</div>
+      <div class="profile-insights-header">
+        <div class="profile-section-title">Activity &amp; AI Insights</div>
+        <div class="profile-insights-actions">
+          <span class="profile-insights-timestamp" id="profile-insights-timestamp"></span>
+          <button id="btn-refresh-insights" class="btn btn-secondary" style="font-size:0.7rem;padding:0.25rem 0.5rem;">Refresh</button>
+        </div>
+      </div>
       <div id="profile-insights-container">
         <div class="profile-spinner">
           <div class="profile-spinner-icon"></div>
@@ -322,10 +339,22 @@
       document.getElementById("edit-bio").value = p.bio || "";
       document.getElementById("edit-avatar").value = p.profilePictureUrl || "";
       document.getElementById("edit-cover").value = p.coverPhotoUrl || "";
-      document.getElementById("edit-social").value = p.socialLinks || "";
       document.getElementById("set-retention").value = String(p.keepArticlesForDays || 30);
       document.getElementById("set-refresh").value = String(p.refreshIntervalMinutes || 30);
       document.getElementById("set-email-fav").checked = p.emailFavoriteFeeds || false;
+
+      var rows = document.getElementById("social-links-rows");
+      rows.innerHTML = "";
+      if (p.socialLinks) {
+        try {
+          var socials = JSON.parse(p.socialLinks);
+          if (Array.isArray(socials)) {
+            socials.forEach(function (s) {
+              addSocialLinkRow(s.label || "", s.url || "");
+            });
+          }
+        } catch (e) {}
+      }
 
       if (isGuest) {
         document.getElementById("guest-notice").style.display = "";
@@ -346,14 +375,27 @@
       }
     }
 
-    async function loadInsights() {
+    async function loadInsights(forceRefresh) {
       var container = document.getElementById("profile-insights-container");
+      var timestampEl = document.getElementById("profile-insights-timestamp");
+      var refreshBtn = document.getElementById("btn-refresh-insights");
+      if (refreshBtn) { refreshBtn.disabled = true; refreshBtn.classList.add("btn-refreshing"); }
+      container.innerHTML = '<div class="profile-spinner"><div class="profile-spinner-icon"></div><span>Analyzing your reading habits&hellip;</span></div>';
+      timestampEl.textContent = "";
+
       try {
-        var res = await apiFetch("/api/profile/insights");
+        var url = "/api/profile/insights";
+        if (forceRefresh) url += "?forceRefresh=true";
+        var res = await apiFetch(url);
         var data = await res.json();
 
         document.getElementById("stat-read").textContent = data.totalRead || 0;
         document.getElementById("stat-bookmarks").textContent = data.totalBookmarks || 0;
+
+        if (data.updatedAt) {
+          var d = new Date(data.updatedAt);
+          timestampEl.textContent = "Updated " + d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " " + d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+        }
 
         var html = '<div class="profile-insight-card"><p>' + escapeHtml(data.readingPersona || "Not enough data to generate insights yet.") + '</p></div>';
         container.innerHTML = html;
@@ -391,6 +433,8 @@
         }
       } catch (e) {
         container.innerHTML = '<p style="color:var(--text-muted);font-size:0.82rem;">Could not load insights. Try again later.</p>';
+      } finally {
+        if (refreshBtn) { refreshBtn.disabled = false; refreshBtn.classList.remove("btn-refreshing"); }
       }
     }
 
@@ -413,20 +457,43 @@
       return (str ?? "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/'/g, "&#39;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
     }
 
+    function addSocialLinkRow(label, url) {
+      var row = document.createElement("div");
+      row.className = "social-link-row";
+      var labelInput = document.createElement("input");
+      labelInput.type = "text";
+      labelInput.placeholder = "Label";
+      labelInput.value = label || "";
+      var urlInput = document.createElement("input");
+      urlInput.type = "url";
+      urlInput.placeholder = "https://";
+      urlInput.value = url || "";
+      var removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.className = "social-link-remove";
+      removeBtn.textContent = "\u00D7";
+      removeBtn.addEventListener("click", function () { row.remove(); });
+      row.appendChild(labelInput);
+      row.appendChild(urlInput);
+      row.appendChild(removeBtn);
+      document.getElementById("social-links-rows").appendChild(row);
+    }
+
     async function saveProfile() {
+      var socials = [];
+      document.getElementById("social-links-rows").querySelectorAll(".social-link-row").forEach(function (row) {
+        var inputs = row.querySelectorAll("input");
+        var label = inputs[0].value.trim();
+        var url = inputs[1].value.trim();
+        if (label && url) socials.push({ label: label, url: url });
+      });
       var body = {
         displayName: document.getElementById("edit-name").value.trim() || null,
         bio: document.getElementById("edit-bio").value.trim() || null,
         profilePictureUrl: document.getElementById("edit-avatar").value.trim() || null,
         coverPhotoUrl: document.getElementById("edit-cover").value.trim() || null,
-        socialLinks: document.getElementById("edit-social").value.trim() || null
+        socialLinks: socials.length > 0 ? JSON.stringify(socials) : null
       };
-      if (body.socialLinks) {
-        try { JSON.parse(body.socialLinks); } catch (e) {
-          showToast("Social Links must be valid JSON.", true);
-          return;
-        }
-      }
       try {
         var res = await apiFetch("/api/settings", {
           method: "PUT",
@@ -492,12 +559,20 @@
         if (currentProfile) renderProfile(currentProfile);
       });
 
+      document.getElementById("btn-add-social").addEventListener("click", function () {
+        addSocialLinkRow("", "");
+      });
+
       document.getElementById("btn-save-prefs").addEventListener("click", savePreferences);
 
       document.getElementById("blocked-list").addEventListener("click", function (e) {
         var ub = e.target.closest(".blocked-user-unblock");
         if (!ub) return;
         unblockUser(ub.dataset.unblock);
+      });
+
+      document.getElementById("btn-refresh-insights").addEventListener("click", function () {
+        loadInsights(true);
       });
     });
   </script>

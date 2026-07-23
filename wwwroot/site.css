@@ -114,6 +114,10 @@ img { max-width: 100%; }
 .quota-bar-fill.exhausted { background: linear-gradient(90deg, #ef4444, #f87171); }
 .quota-reset-timer { font-size: 0.6rem; color: var(--text-muted); }
 
+.btn-send-digest { display: block; width: calc(100% - 1.3rem); margin: 0.5rem 0.65rem 0; padding: 0.5rem 0.75rem; background: linear-gradient(135deg, rgba(129,140,248,0.15) 0%, rgba(99,102,241,0.08) 100%); border: 1px solid var(--accent); border-radius: var(--radius-sm); color: var(--accent); font-family: inherit; font-size: 0.72rem; font-weight: 600; cursor: pointer; transition: var(--transition); }
+.btn-send-digest:hover { background: var(--accent); color: #fff; }
+.btn-send-digest:disabled { opacity: 0.5; cursor: not-allowed; }
+
 .theme-toggle, .lang-toggle { background: none; border: none; color: var(--text-muted); padding: 0.375rem; border-radius: var(--radius-sm); cursor: pointer; transition: var(--transition); display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .theme-toggle:hover, .lang-toggle:hover { color: var(--accent); background: var(--accent-bg); }
 .theme-toggle svg, .lang-toggle svg { width: 18px; height: 18px; }
@@ -253,6 +257,9 @@ img { max-width: 100%; }
 
 /* ═══════════════ BRIEFING CARD ═══════════════ */
 .briefing-card { margin: 1rem 1.5rem 0; padding: 1.25rem 1.5rem; background: linear-gradient(135deg, rgba(129,140,248,0.12) 0%, rgba(99,102,241,0.05) 100%); border: 1px solid var(--accent); border-radius: var(--radius); box-shadow: var(--shadow-md); }
+.briefing-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; }
+.briefing-timestamp { font-size: 0.68rem; color: var(--text-muted); }
+.briefing-actions { display: flex; align-items: center; gap: 0.4rem; }
 .briefing-content { font-size: 0.85rem; line-height: 1.7; color: var(--text-primary); }
 
 /* ═══════════════ ARTICLES CONTAINER ═══════════════ */

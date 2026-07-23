@@ -186,7 +186,8 @@ public sealed class FeedArticleService
         try
         {
             if (DateTimeOffset.TryParse(raw, out var dto)) return dto.UtcDateTime;
-            if (DateTime.TryParse(raw, out var dt)) return dt;
+            if (DateTime.TryParse(raw, out var dt))
+                return dt.Kind == DateTimeKind.Local ? dt.ToUniversalTime() : DateTime.SpecifyKind(dt, DateTimeKind.Utc);
         }
         catch { }
         return null;

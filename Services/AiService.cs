@@ -190,6 +190,28 @@ public sealed class AiService : IAiService
 
     private static string BuildSystemPrompt(string lang, string mode)
     {
+        if (mode == "deep")
+        {
+            if (lang == "ar")
+            {
+                return
+                    "أنت مساعد تلخيص محترف. مهمتك الوحيدة هي تلخيص مقالة واحدة بعمق. " +
+                    "Rules:\n" +
+                    "- قم بإنشاء ملخص شامل وموثق للمقال الواحد المقدم أدناه فقط. لا تذكر أخباراً أو مصادر أو فئات أخرى.\n" +
+                    "- استخدم Markdown نظيفاً ومنظماً.\n" +
+                    "- لا تفتتح بعبارة 'بناءً على أخبار...' أو ما شابهها.\n" +
+                    "- Never output raw HTML, only Markdown";
+            }
+
+            return
+                "You are a professional summarization assistant. Your only task is to deeply summarize a single article. " +
+                "Rules:\n" +
+                "- Create a comprehensive, well-cited summary of ONLY the one article provided below. Do not mention other news, sources, or categories.\n" +
+                "- Use clean, structured Markdown.\n" +
+                "- Do NOT open with 'Based on...' or similar daily-briefing phrasing.\n" +
+                "- Never output raw HTML, only Markdown";
+        }
+
         if (lang == "ar")
         {
             return

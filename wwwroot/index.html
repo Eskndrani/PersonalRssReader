@@ -58,6 +58,7 @@
         </div>
         <div class="quota-reset-timer"></div>
       </div>
+      <button id="btn-send-digest" class="btn-send-digest" style="display:none;" title="Send your favorite feed digest via email">Send Digest by Email</button>
       <div class="sidebar-header">
         <h2 data-i18n="subscriptions">
           <img src="/logo.svg" alt="" class="sidebar-logo" width="20" height="20">
@@ -124,8 +125,14 @@
       </div>
 
       <div id="briefing-card" class="briefing-card" style="display: none;">
+        <div class="briefing-header">
+          <span class="briefing-timestamp" id="briefing-timestamp"></span>
+          <div class="briefing-actions">
+            <button id="btn-refresh-briefing" class="btn btn-secondary" style="font-size:0.7rem;padding:0.25rem 0.5rem;" data-i18n="refresh">Refresh</button>
+            <button id="btn-dismiss-briefing" class="btn btn-secondary" style="font-size:0.7rem;padding:0.25rem 0.5rem;" data-i18n="dismiss">Dismiss</button>
+          </div>
+        </div>
         <div class="briefing-content" id="briefing-content"></div>
-        <button id="btn-dismiss-briefing" class="btn btn-secondary" style="margin-top: 0.5rem;" data-i18n="dismiss">Dismiss</button>
       </div>
 
       <div id="articles-container" class="articles-container">
